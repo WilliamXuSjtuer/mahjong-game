@@ -206,6 +206,7 @@ class MahjongRoom {
         this.code = code;
         this.hostId = hostId;
         this.players = [];
+        this.viewers = [];  // 观战者列表
         this.gameState = null;
         this.gameRunning = false;
         this.createdAt = Date.now();
@@ -530,6 +531,51 @@ class MahjongRoom {
             }
         }
     }
+    
+    // 添加观战者
+    addViewer(socket, username, avatar) {
+        const viewer = {
+            id: socket.id,
+            username: username,
+            avatar: avatar || '👀',
+            socket: socket
+        };
+        
+        this.viewers.push(viewer);
+        playerSockets.set(socket.id, this);
+        
+        console.log(`观战者 ${username} 加入房间 ${this.code}`);
+        
+        // 发送欢迎消息
+        socket.emit('viewer_joined', {
+            roomCode: this.code,
+            message: `欢迎观战！您可以看到所有人的牌`
+        });
+        
+        // 如果游戏正在进行，发送当前游戏状态
+        if (this.gameRunning && this.gameState) {
+            socket.emit('game_state_update', {
+                gameState: this.getViewerGameState()
+            });
+        }
+        
+        this.broadcastRoomUpdate();
+        
+        return viewer;
+    }
+    
+    // 移除观战者
+    removeViewer(socketId) {
+        const viewerIndex = this.viewers.findIndex(v => v.id === socketId);
+        if (viewerIndex !== -1) {
+            const viewer = this.viewers[viewerIndex];
+            this.viewers.splice(viewerIndex, 1);
+            playerSockets.delete(socketId);
+            
+            console.log(`观战者 ${viewer.username} 离开房间 ${this.code}`);
+            this.broadcastRoomUpdate();
+        }
+    }
 
     // 设置玩家准备状态
     setPlayerReady(socketId, ready) {
@@ -729,6 +775,42 @@ class MahjongRoom {
             roundNumber: this.gameState.roundNumber
         };
     }
+    
+    // 获取观战者游戏状态（可以看到所有人的牌）
+    getViewerGameState() {
+        if (!this.gameState) return null;
+        
+        return {
+            players: this.players.map(p => ({
+                id: p.id,
+                username: p.username,
+                avatar: p.avatar,
+                voice: p.voice || 'female01',
+                seatIndex: p.seatIndex,
+                wind: p.wind,
+                windName: WIND_NAMES[p.wind],
+                isBot: p.isBot,
+                isHost: p.isHost,
+                offline: p.offline || false,
+                aiTakeover: p.aiTakeover || false,
+                handCount: p.hand.length,
+                hand: p.hand,  // 观战者可以看到所有人的手牌
+                melds: p.melds,
+                discards: p.discards,
+                flowers: p.flowers,
+                isTing: p.isTing,
+                isQiao: p.isQiao
+            })),
+            currentPlayerIndex: this.gameState.currentPlayerIndex,
+            turnPhase: this.gameState.turnPhase,
+            lastDiscard: this.gameState.lastDiscard,
+            lastDiscardPlayer: this.gameState.lastDiscardPlayer,
+            deckRemaining: this.gameState.deck.length,
+            dealerIndex: this.gameState.dealerIndex,
+            roundNumber: this.gameState.roundNumber,
+            isViewer: true  // 标记为观战者模式
+        };
+    }
 
     // 通知当前玩家行动
     notifyCurrentPlayer() {
@@ -864,10 +946,20 @@ class MahjongRoom {
         
         this._lastBroadcast = now;
         
+        // 广播给玩家
         this.players.forEach(player => {
             if (player.socket) {
                 player.socket.emit('game_state_update', {
                     gameState: this.getPlayerGameState(player.id)
+                });
+            }
+        });
+        
+        // 广播给观战者（观战者可以看到所有人的牌）
+        this.viewers.forEach(viewer => {
+            if (viewer.socket) {
+                viewer.socket.emit('game_state_update', {
+                    gameState: this.getViewerGameState()
                 });
             }
         });
@@ -880,6 +972,26 @@ class MahjongRoom {
                 player.socket.emit('light_update', 
                     this.getPlayerGameState(player.id, true)
                 );
+            }
+        });
+        
+        // 观战者也需要轻量更新
+        this.viewers.forEach(viewer => {
+            if (viewer.socket) {
+                viewer.socket.emit('light_update', {
+                    p: this.players.map(p => ({
+                        s: p.seatIndex,
+                        h: p.hand.length,
+                        d: p.discards.length,
+                        m: p.melds.length,
+                        f: p.flowers?.length || 0,
+                        o: p.offline || false
+                    })),
+                    c: this.gameState.currentPlayerIndex,
+                    t: this.gameState.turnPhase,
+                    r: this.gameState.deck.length,
+                    isViewer: true
+                });
             }
         });
     }
@@ -2503,10 +2615,21 @@ class MahjongRoom {
                 ready: p.ready,
                 isHost: p.isHost,
                 isBot: p.isBot
+            })),
+            viewers: this.viewers.map(v => ({
+                username: v.username,
+                avatar: v.avatar
             }))
         };
         
         this.broadcast('room_updated', { room: roomInfo });
+        
+        // 也广播给观战者
+        this.viewers.forEach(viewer => {
+            if (viewer.socket) {
+                viewer.socket.emit('room_updated', { room: roomInfo });
+            }
+        });
     }
 
     // 广播消息给所有玩家
@@ -2852,8 +2975,21 @@ io.on('connection', (socket) => {
         console.log(`玩家 ${username} 不是断线重连，继续正常加入流程`);
         
         if (room.gameRunning) {
-            socket.emit('join_error', { message: '游戏已开始，无法加入' });
-            return;
+            // 游戏进行中，允许以观战者身份加入
+            if (room.players.length >= 4) {
+                // 房间满了，只能观战
+                room.addViewer(socket, username, avatar);
+                console.log(`玩家 ${username} 以观战者身份加入房间 ${code}`);
+                return;
+            } else {
+                // 房间没满，给玩家选择是观战还是加入
+                socket.emit('game_in_progress_choice', {
+                    roomCode: code,
+                    message: '游戏正在进行中，您要加入游戏还是观战？',
+                    canJoin: true
+                });
+                return;
+            }
         }
         
         // 检查真人玩家数量（AI不占位）
@@ -2885,6 +3021,21 @@ io.on('connection', (socket) => {
         }
     });
     
+    // 以观战者身份加入（游戏进行中）
+    socket.on('join_as_viewer', (data) => {
+        const { roomCode, username, avatar } = data;
+        const code = roomCode.toUpperCase().trim();
+        const room = gameRooms.get(code);
+        
+        if (!room) {
+            socket.emit('join_error', { message: `房间 ${code} 不存在` });
+            return;
+        }
+        
+        room.addViewer(socket, username, avatar);
+        console.log(`玩家 ${username} 以观战者身份加入房间 ${code}`);
+    });
+    
     // 接管AI（游戏中恢复控制权）
     socket.on('takeover_ai', () => {
         const room = playerSockets.get(socket.id);
@@ -2897,7 +3048,13 @@ io.on('connection', (socket) => {
     socket.on('leave_room', () => {
         const room = playerSockets.get(socket.id);
         if (room) {
-            room.removePlayer(socket.id);
+            // 检查是玩家还是观战者
+            const player = room.players.find(p => p.id === socket.id);
+            if (player) {
+                room.removePlayer(socket.id);
+            } else {
+                room.removeViewer(socket.id);
+            }
         }
     });
 
@@ -3092,7 +3249,13 @@ io.on('connection', (socket) => {
         console.log('断开连接:', socket.id);
         const room = playerSockets.get(socket.id);
         if (room) {
-            room.removePlayer(socket.id);
+            // 检查是玩家还是观战者
+            const player = room.players.find(p => p.id === socket.id);
+            if (player) {
+                room.removePlayer(socket.id);
+            } else {
+                room.removeViewer(socket.id);
+            }
         }
     });
 });

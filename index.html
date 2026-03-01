@@ -2370,6 +2370,8 @@
         <div class="room-container">
             <div class="players-grid" id="playersGrid"></div>
             
+            <div id="viewersList"></div>
+            
             <div class="room-actions">
                 <button class="btn" id="readyBtn" onclick="toggleReady()">
                     <i class="fas fa-check"></i> 准备
@@ -2719,6 +2721,25 @@
         </div>
     </div>
 
+    <!-- 游戏进行中选择弹窗（加入游戏或观战） -->
+    <div class="modal" id="gameInProgressModal">
+        <div class="modal-content">
+            <h2 style="color: var(--gold); margin-bottom: 20px;">⚠️ 游戏进行中</h2>
+            <p id="gameInProgressMessage" style="margin-bottom: 30px; color: #ccc;">游戏正在进行中，您要加入游戏还是观战？</p>
+            <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                <button class="btn" id="joinGameBtn" onclick="joinGameAsPlayer()">
+                    <i class="fas fa-play"></i> 加入游戏
+                </button>
+                <button class="btn" id="joinViewerBtn" onclick="joinGameAsViewer()">
+                    <i class="fas fa-eye"></i> 观战
+                </button>
+            </div>
+            <button class="btn secondary" style="margin-top: 20px;" onclick="closeGameInProgressModal()">
+                取消
+            </button>
+        </div>
+    </div>
+
     <!-- 聊天面板 -->
     <button class="chat-toggle-btn" id="chatToggleBtn" onclick="toggleChatPanel()">
         <i class="fas fa-comment"></i>
@@ -2877,6 +2898,7 @@
         let selectedTileId = null;
         let gameState = null;
         let gameRunning = false;
+        let isViewer = false;  // 是否为观战者
         let isReady = false;
         let username = '';
         let lastDrawnTileId = null; // 记录刚摸的牌
@@ -3713,6 +3735,21 @@
                 showToast(data.message);
             });
 
+            // 游戏进行中的选择（加入游戏或观战）
+            socket.on('game_in_progress_choice', (data) => {
+                showGameInProgressModal(data);
+            });
+            
+            // 观战者加入成功
+            socket.on('viewer_joined', (data) => {
+                console.log('以观战者身份加入房间:', data.roomCode);
+                currentRoom = data.roomCode;
+                isViewer = true;
+                showToast(data.message);
+                showGameScreen();
+                updateGameUI();
+            });
+
             socket.on('room_updated', (data) => {
                 updateRoomUI(data.room);
             });
@@ -4383,6 +4420,17 @@
                 
                 grid.appendChild(slot);
             }
+            
+            // 显示观战者列表
+            const viewersEl = document.getElementById('viewersList');
+            if (viewersEl && room.viewers) {
+                if (room.viewers.length > 0) {
+                    viewersEl.innerHTML = '<div style="color: #aaa; font-size: 0.9rem; margin-top: 10px;">👀 观战者: ' + 
+                        room.viewers.map(v => v.username).join(', ') + '</div>';
+                } else {
+                    viewersEl.innerHTML = '';
+                }
+            }
         }
 
         // 复制房间号
@@ -4509,58 +4557,90 @@
             if (!gameState) return;
             
             const myPlayer = gameState.players.find(p => p.seatIndex === mySeatIndex);
-            if (!myPlayer) return;
+            if (!myPlayer && !isViewer) return;
             
             const remainingTilesEl = document.getElementById('remainingTiles');
             if (remainingTilesEl) remainingTilesEl.textContent = gameState.deckRemaining;
             
-            const mySeatIdx = gameState.players.findIndex(p => p.seatIndex === mySeatIndex);
+            // 观战者模式：显示所有玩家信息
+            const isViewerMode = gameState.isViewer || isViewer;
+            
+            let mySeatIdx;
+            if (isViewerMode) {
+                // 观战者模式：以座位0为基准
+                mySeatIdx = 0;
+            } else {
+                mySeatIdx = gameState.players.findIndex(p => p.seatIndex === mySeatIndex);
+            }
+            
             const seatMapping = [];
             for (let i = 0; i < 4; i++) {
                 seatMapping[(i - mySeatIdx + 4) % 4] = i;
             }
             
-            // 更新自己的玩家信息
+            // 更新自己的玩家信息（观战者模式显示为座位0的玩家）
+            const currentMyPlayer = isViewerMode ? gameState.players[0] : myPlayer;
+            
             const playerAvatarEl = document.getElementById('playerAvatar');
             if (playerAvatarEl) {
-                playerAvatarEl.textContent = myPlayer.avatar || '😊';
-                playerAvatarEl.classList.toggle('dealer', gameState.dealerIndex === myPlayer.seatIndex);
+                playerAvatarEl.textContent = currentMyPlayer?.avatar || '😊';
+                playerAvatarEl.classList.toggle('dealer', gameState.dealerIndex === currentMyPlayer?.seatIndex);
             }
             const playerNameEl = document.getElementById('playerName');
             if (playerNameEl) {
-                playerNameEl.textContent = myPlayer.username || '玩家';
+                playerNameEl.textContent = isViewerMode ? `观战：${currentMyPlayer?.username || '座位 0'}` : (currentMyPlayer?.username || '玩家');
             }
             const playerWindEl = document.getElementById('playerWind');
             if (playerWindEl) {
-                playerWindEl.textContent = myPlayer.windName || '';
+                playerWindEl.textContent = currentMyPlayer?.windName || '';
             }
 
             const playerHandEl = document.getElementById('playerHand');
-            if (playerHandEl && myPlayer.hand) {
-                playerHandEl.innerHTML = myPlayer.hand.map((tile, index) => {
-                    const isNewTile = tile.id === lastDrawnTileId;
-                    return renderTile(tile, { selectable: true, index, isNew: isNewTile });
-                }).join('');
+            if (playerHandEl && currentMyPlayer?.hand) {
+                // 观战者模式：显示自己的手牌（正面）
+                if (isViewerMode) {
+                    playerHandEl.innerHTML = currentMyPlayer.hand.map((tile, index) => {
+                        return renderTile(tile, { selectable: false, index, isNew: false });
+                    }).join('');
+                } else {
+                    // 普通玩家只看到自己的牌
+                    playerHandEl.innerHTML = currentMyPlayer.hand.map((tile, index) => {
+                        const isNewTile = tile.id === lastDrawnTileId;
+                        return renderTile(tile, { selectable: true, index, isNew: isNewTile });
+                    }).join('');
+                }
             }
             
             const playerFlowersEl = document.getElementById('playerFlowers');
-            if (playerFlowersEl && myPlayer.flowers) {
-                playerFlowersEl.innerHTML = myPlayer.flowers.map(tile => 
+            if (playerFlowersEl && currentMyPlayer?.flowers) {
+                playerFlowersEl.innerHTML = currentMyPlayer.flowers.map(tile => 
                     renderTile(tile, { small: true })
                 ).join('');
             }
             
             const flowerCountEl = document.getElementById('flowerCount');
-            if (flowerCountEl && myPlayer.flowers) {
-                const flowerCount = myPlayer.flowers.length;
-                const handCount = myPlayer.hand ? myPlayer.hand.length : 0;
-                const meldsCount = myPlayer.melds ? myPlayer.melds.length : 0;
-                let statusText = `🃏 手牌: ${handCount}张`;
-                if (meldsCount > 0) {
-                    statusText += ` (碰${meldsCount}组)`;
+            if (flowerCountEl) {
+                if (isViewerMode) {
+                    // 观战者模式：显示所有玩家的花牌数
+                    let flowerInfo = '🌸 花牌：';
+                    const flowerParts = [];
+                    gameState.players.forEach(player => {
+                        if (player.flowers && player.flowers.length > 0) {
+                            flowerParts.push(`${player.username}:${player.flowers.length}朵`);
+                        }
+                    });
+                    flowerCountEl.innerHTML = flowerInfo + flowerParts.join(' | ') || '🌸 花牌：暂无';
+                } else if (currentMyPlayer?.flowers) {
+                    const flowerCount = currentMyPlayer.flowers.length;
+                    const handCount = currentMyPlayer.hand ? currentMyPlayer.hand.length : 0;
+                    const meldsCount = currentMyPlayer.melds ? currentMyPlayer.melds.length : 0;
+                    let statusText = `🃏 手牌: ${handCount}张`;
+                    if (meldsCount > 0) {
+                        statusText += ` (碰${meldsCount}组)`;
+                    }
+                    statusText += ` | 🌸 花牌: ${flowerCount}`;
+                    flowerCountEl.innerHTML = statusText;
                 }
-                statusText += ` | 🌸 花牌: ${flowerCount}`;
-                flowerCountEl.innerHTML = statusText;
             }
             
             for (let relSeat = 1; relSeat <= 3; relSeat++) {
@@ -4587,9 +4667,17 @@
                 const opponentHandEl = document.getElementById(`${opponentId}Hand`);
                 if (opponentHandEl) {
                     let handHtml = '';
-                    const handCount = player.handCount || (player.hand ? player.hand.length : 0);
-                    for (let i = 0; i < handCount; i++) {
-                        handHtml += '<div class="tile small back"></div>';
+                    // 观战者模式：显示所有玩家的手牌（正面）
+                    if (isViewerMode && player.hand) {
+                        handHtml = player.hand.map((tile, index) => {
+                            return renderTile(tile, { selectable: false, index, small: true });
+                        }).join('');
+                    } else {
+                        // 普通模式：只显示背面
+                        const handCount = player.handCount || (player.hand ? player.hand.length : 0);
+                        for (let i = 0; i < handCount; i++) {
+                            handHtml += '<div class="tile small back"></div>';
+                        }
                     }
                     opponentHandEl.innerHTML = handHtml;
                 }
@@ -4643,8 +4731,8 @@
             }
             
             const playerMeldsEl = document.getElementById('playerMelds');
-            if (playerMeldsEl && myPlayer.melds) {
-                playerMeldsEl.innerHTML = myPlayer.melds.map(meld => {
+            if (playerMeldsEl && currentMyPlayer?.melds) {
+                playerMeldsEl.innerHTML = currentMyPlayer.melds.map(meld => {
                     const tilesHtml = meld.tiles.map(tile => renderTile(tile, { small: true })).join('');
                     return `<div class="meld-group ${meld.type}">${tilesHtml}</div>`;
                 }).join('');
@@ -4652,7 +4740,7 @@
             
             updateActionButtons();
             
-            const isMenQing = !myPlayer.melds || myPlayer.melds.length === 0;
+            const isMenQing = !currentMyPlayer.melds || currentMyPlayer.melds.length === 0;
             const menqingStatusEl = document.getElementById('menqingStatus');
             const menqingIconEl = document.getElementById('menqingIcon');
             if (menqingStatusEl && menqingIconEl) {
@@ -4994,11 +5082,16 @@
 
         // 手动摸牌（备用）
         function drawTile() {
+            if (isViewer) {
+                showToast('观战者不能进行操作');
+                return;
+            }
             socket.emit('draw_tile');
         }
         
         // 自动摸牌
         function autoDrawTile() {
+            if (isViewer) return;
             if (!gameState || gameState.currentPlayerIndex !== mySeatIndex) return;
             if (gameState.turnPhase !== 'draw') return;
             
@@ -5008,6 +5101,10 @@
 
         // 出牌
         function discardTile() {
+            if (isViewer) {
+                showToast('观战者不能进行操作');
+                return;
+            }
             if (!selectedTileId) {
                 showToast('请先选择要打出的牌');
                 return;
@@ -5044,6 +5141,11 @@
 
         // 执行动作
         function doAction(action) {
+            if (isViewer) {
+                showToast('观战者不能进行操作');
+                return;
+            }
+            
             console.log('执行动作:', action);
             
             // 如果是加杠，传递加杠选项信息
@@ -5893,6 +5995,7 @@
             currentRoom = null;
             gameState = null;
             gameRunning = false;
+            isViewer = false;
         }
 
         // 暂停游戏
@@ -6448,6 +6551,61 @@
                 }
             };
         }
+        
+        // ==================== 观战系统函数 ====================
+        
+        // 显示游戏进行中选择弹窗
+        function showGameInProgressModal(data) {
+            const modal = document.getElementById('gameInProgressModal');
+            const messageEl = document.getElementById('gameInProgressMessage');
+            const joinGameBtn = document.getElementById('joinGameBtn');
+            const joinViewerBtn = document.getElementById('joinViewerBtn');
+            
+            if (messageEl) {
+                messageEl.textContent = data.message;
+            }
+            
+            // 根据 canJoin 显示/隐藏按钮
+            if (joinGameBtn) {
+                joinGameBtn.style.display = data.canJoin ? 'inline-block' : 'none';
+            }
+            
+            if (modal) {
+                modal.classList.add('active');
+            }
+        }
+        
+        // 关闭游戏进行中选择弹窗
+        function closeGameInProgressModal() {
+            const modal = document.getElementById('gameInProgressModal');
+            if (modal) {
+                modal.classList.remove('active');
+            }
+        }
+        
+        // 以玩家身份加入游戏
+        function joinGameAsPlayer() {
+            closeGameInProgressModal();
+            // 发送加入游戏请求
+            socket.emit('join_room', { 
+                roomCode: currentRoom, 
+                username: username, 
+                avatar: '👤', 
+                voice: myVoice 
+            });
+        }
+        
+        // 以观战者身份加入
+        function joinGameAsViewer() {
+            closeGameInProgressModal();
+            socket.emit('join_as_viewer', {
+                roomCode: currentRoom,
+                username: username,
+                avatar: '👀'
+            });
+        }
+        
+        // ==================== 观战系统函数结束 ====================
         
         // 初始化
         connectServer();
