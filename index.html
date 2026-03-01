@@ -3702,6 +3702,7 @@
             });
 
             socket.on('room_joined', (data) => {
+                console.log('收到 room_joined 事件，roomCode:', data.roomCode);
                 currentRoom = data.roomCode;
                 sessionStorage.setItem('mahjong_room_code', data.roomCode);
                 sessionStorage.setItem('mahjong_username', username);
@@ -3728,6 +3729,13 @@
 
             // 游戏事件
             socket.on('game_started', (data) => {
+                console.log('收到 game_started 事件，isReconnect:', data.isReconnect, '游戏界面存在:', !!document.getElementById('gameScreen'));
+                
+                // 设置房间号（重连时可能没有 room_joined 事件）
+                if (data.roomCode) {
+                    currentRoom = data.roomCode;
+                }
+                
                 mySeatIndex = data.yourSeat;
                 gameState = data.gameState;
                 gameRunning = true;
@@ -4025,6 +4033,11 @@
             // 单局结算
             socket.on('round_ended', (data) => {
                 console.log('单局结算:', data);
+                
+                // 设置房间号（重连时可能没有 room_joined 事件）
+                if (data.roomCode) {
+                    currentRoom = data.roomCode;
+                }
 
                 // 检测是否有人胡牌，播放对应语音
                 if (data.roundResult && data.roundResult.resultType) {
@@ -4316,23 +4329,29 @@
 
         // 加入房间
         function joinRoom() {
+            console.log('joinRoom 被调用');
             if (!isConnected) {
+                console.log('未连接，显示服务器要求弹窗');
                 showServerRequiredModal();
                 return;
             }
             username = document.getElementById('usernameInput').value.trim() || '玩家' + Math.floor(Math.random() * 1000);
             const roomCode = document.getElementById('roomCodeInput').value.trim().toUpperCase();
             
+            console.log('加入房间:', roomCode, '用户名:', username);
+            
             if (roomCode.length !== 6) {
                 showToast('请输入6位房间号');
                 return;
             }
             
+            console.log('发送 join_room 事件');
             socket.emit('join_room', { roomCode, username, avatar: '👤', voice: myVoice });
         }
 
         // 显示房间界面
         function showRoomScreen() {
+            console.log('showRoomScreen 被调用');
             document.getElementById('lobbyScreen').classList.remove('active');
             document.getElementById('roomScreen').classList.add('active');
             document.getElementById('roomCodeDisplay').textContent = currentRoom;
@@ -4428,10 +4447,24 @@
 
         // 显示游戏界面
         function showGameScreen() {
+            console.log('showGameScreen 被调用');
+            // 隐藏所有其他界面
+            const lobbyScreenEl = document.getElementById('lobbyScreen');
+            if (lobbyScreenEl) {
+                console.log('移除 lobbyScreen.active');
+                lobbyScreenEl.classList.remove('active');
+            }
             const roomScreenEl = document.getElementById('roomScreen');
-            if (roomScreenEl) roomScreenEl.classList.remove('active');
+            if (roomScreenEl) {
+                console.log('移除 roomScreen.active');
+                roomScreenEl.classList.remove('active');
+            }
+            // 显示游戏界面
             const gameScreenEl = document.getElementById('gameScreen');
-            if (gameScreenEl) gameScreenEl.classList.add('active');
+            if (gameScreenEl) {
+                console.log('添加 gameScreen.active');
+                gameScreenEl.classList.add('active');
+            }
 
             // 更新房间号显示
             const roomInfoEl = document.getElementById('roomInfo');

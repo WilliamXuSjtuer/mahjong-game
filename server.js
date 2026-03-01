@@ -231,14 +231,13 @@ class MahjongRoom {
 
     // 添加玩家
     addPlayer(socket, username, avatar, voice = 'female01') {
-        if (this.players.length >= 4) {
-            return null;
-        }
+        console.log(`addPlayer 被调用: username=${username}, 当前玩家数=${this.players.length}`);
         
-        // 检查是否是重连（相同用户名的离线玩家）
+        // 先检查是否是重连（相同用户名的离线玩家）
         const offlinePlayer = this.players.find(p => !p.isBot && p.offline && p.username === username);
+        console.log(`查找离线玩家: ${offlinePlayer ? '找到' : '未找到'}`);
         if (offlinePlayer) {
-            // 重连：恢复玩家状态
+            // 重连：恢复玩家状态（不受4人限制，因为是恢复已有玩家）
             offlinePlayer.id = socket.id;
             offlinePlayer.socket = socket;
             offlinePlayer.offline = false;
@@ -267,8 +266,12 @@ class MahjongRoom {
             this.broadcastRoomUpdate();
             
             // 如果游戏正在进行，发送当前游戏状态并恢复控制权
+            const gameOver = this.gameState ? this.gameState.gameOver : false;
+            console.log(`检查游戏状态: gameRunning=${this.gameRunning}, gameOver=${gameOver}`);
             if (this.gameRunning) {
+                console.log(`玩家 ${username} 重连，游戏进行中，发送 game_started`);
                 socket.emit('game_started', {
+                    roomCode: this.code,
                     gameState: this.getPlayerGameState(socket.id),
                     dealerIndex: this.gameState.dealerIndex,
                     yourSeat: offlinePlayer.seatIndex,
@@ -289,7 +292,7 @@ class MahjongRoom {
                         }
                         this.setDiscardTimeout(offlinePlayer);
                         
-                        // 通知玩家轮到他出牌（延迟发送确保socket稳定）
+                        // 通知玩家轮到他出牌（延迟发送确保 socket 稳定）
                         setTimeout(() => {
                             socket.emit('your_turn', {
                                 phase: 'discard',
@@ -308,7 +311,8 @@ class MahjongRoom {
                 }
                 
                 // 检查是否有待处理的碰/杠/胡动作
-                const pendingAction = this.gameState.pendingActions?.find(a => a.playerId === socket.id);
+                const pendingActions = this.gameState.pendingActions || [];
+                const pendingAction = pendingActions.find(a => a.playerId === socket.id);
                 if (pendingAction && !pendingAction.resolved) {
                     console.log(`玩家 ${username} 重连，有待处理的动作:`, pendingAction.actions);
                     socket.emit('action_available', {
@@ -316,9 +320,34 @@ class MahjongRoom {
                         tile: pendingAction.tile
                     });
                 }
+            } else if (this.gameState && this.gameState.gameOver) {
+                // 游戏暂停中（局间间隙），发送回合结束事件
+                console.log(`玩家 ${username} 重连，游戏暂停中（局间），发送 round_ended`);
+                // 发送最近的历史记录（如果有）
+                const lastRoundResult = this.roundHistory.length > 0 ? this.roundHistory[this.roundHistory.length - 1] : null;
+                if (lastRoundResult) {
+                    socket.emit('round_ended', {
+                        roomCode: this.code,
+                        roundResult: lastRoundResult,
+                        currentRound: this.currentRound,
+                        totalRounds: this.totalRounds,
+                        matchScores: this.matchScores,
+                        countdownSeconds: this.nextRoundCountdown || 30
+                    });
+                }
+            } else {
+                // 游戏未开始，发送 room_joined 事件
+                console.log(`玩家 ${username} 重连，游戏未开始，发送 room_joined`);
+                socket.emit('room_joined', { roomCode: this.code });
             }
             
             return offlinePlayer;
+        }
+        
+        // 不是重连，检查房间是否已满
+        if (this.players.length >= 4) {
+            console.log(`房间已满，返回 null`);
+            return null;
         }
         
         const seatIndex = this.players.length;
@@ -404,8 +433,8 @@ class MahjongRoom {
             const player = this.players[playerIndex];
             playerSockets.delete(socketId);
             
-            // 如果游戏正在进行，只标记离线，不真正移除
-            if (this.gameRunning && !player.isBot) {
+            // 真人玩家断线，标记为离线状态（无论游戏是否在进行，都保留玩家信息以便重连）
+            if (!player.isBot) {
                 player.offline = true;
                 player.offlineTime = Date.now();
                 player.socket = null;
@@ -419,7 +448,7 @@ class MahjongRoom {
                 this.broadcastRoomUpdate();
                 
                 // 【新增】如果正好轮到断线玩家，AI立即接管
-                if (this.gameState.currentPlayerIndex === player.seatIndex) {
+                if (this.gameRunning && this.gameState.currentPlayerIndex === player.seatIndex) {
                     console.log(`玩家 ${player.username} 断线时正好轮到他，AI接管`);
                     
                     // 清除可能存在的超时计时器
@@ -473,7 +502,7 @@ class MahjongRoom {
                 return;
             }
             
-            // 游戏未开始时，真正移除玩家
+            // AI玩家或游戏未开始时的真人玩家，真正移除
             this.players.splice(playerIndex, 1);
             console.log(`玩家 ${player.username} 离开房间 ${this.code}`);
             
@@ -2808,14 +2837,21 @@ io.on('connection', (socket) => {
             return;
         }
         
+        // 检查是否是断线玩家的重连（无论游戏是否在进行）
+        console.log(`检查重连: 房间玩家=${room.players.map(p => `${p.username}(offline=${p.offline})`).join(', ')}`);
+        const offlinePlayer = room.players.find(p => !p.isBot && p.offline && p.username === username);
+        if (offlinePlayer) {
+            console.log(`玩家 ${username} 是断线重连，座位: ${offlinePlayer.seatIndex}`);
+            // 允许重连（addPlayer 内部会发送 game_started 或 round_ended 事件）
+            console.log(`调用 room.addPlayer()...`);
+            const result = room.addPlayer(socket, username, avatar, voice || 'female01');
+            console.log(`room.addPlayer() 返回:`, result ? '成功' : '失败');
+            // 注意：不发送 room_joined 事件，因为 addPlayer 会发送 game_started 或 round_ended
+            return;
+        }
+        console.log(`玩家 ${username} 不是断线重连，继续正常加入流程`);
+        
         if (room.gameRunning) {
-            // 检查是否是断线玩家的重连
-            const offlinePlayer = room.players.find(p => !p.isBot && p.offline && p.username === username);
-            if (offlinePlayer) {
-                // 允许重连
-                room.addPlayer(socket, username, avatar, voice || 'female01');
-                return;
-            }
             socket.emit('join_error', { message: '游戏已开始，无法加入' });
             return;
         }
