@@ -1675,6 +1675,12 @@ class MahjongRoom {
             this.gameState.currentPlayerIndex = action.playerIndex;
             this.gameState.turnPhase = 'draw';
             
+            // 【修复】清除之前的出牌超时计时器，避免加杠后超时
+            if (this.gameState.discardTimeout) {
+                clearTimeout(this.gameState.discardTimeout);
+                this.gameState.discardTimeout = null;
+            }
+            
             this.broadcastGameState();
             
             // 检查加杠后是否自摸

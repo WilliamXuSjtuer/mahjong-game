@@ -4048,6 +4048,11 @@
                 const playerVoice = player?.voice || getPlayerVoiceBySeat(data.playerIndex);
                 const isMe = data.playerIndex === mySeatIndex;
                 
+                // 【修复】如果是加杠动作，立即停止倒计时，避免超时
+                if (data.action === 'jia_gang' && isMe) {
+                    stopDiscardCountdown('action_executed: jia_gang');
+                }
+                
                 // 显示动作特效（碰/杠/胡/加杠/吃 大字动画）
                 if (data.action === 'peng' || data.action === 'gang' || data.action === 'hu' || data.action === 'hu_zimo' || data.action === 'jia_gang' || data.action === 'chi') {
                     showActionEffect(data.action, playerName);
