@@ -1091,8 +1091,30 @@ class MahjongRoom {
             }
         }
         
-        // 如果有加杠选项且没有自摸，优先提示加杠
-        if (jiaGangActions.length > 0 && !this.gameState.pendingZimo) {
+        // 检查暗杠（手中有 3 张相同的牌，摸到第 4 张）
+        const anGangActions = [];
+        const sameTilesInHand = player.hand.filter(t => 
+            t.type === tile.type && t.value === tile.value
+        );
+        if (sameTilesInHand.length === 3) {
+            // 手中有 3 张，加上刚摸的这张正好 4 张，可以暗杠
+            anGangActions.push({
+                tile: tile
+            });
+        }
+        
+        // 如果有暗杠选项且没有自摸，优先提示暗杠
+        if (anGangActions.length > 0 && !this.gameState.pendingZimo) {
+            if (player.socket) {
+                player.socket.emit('action_available', {
+                    playerId: player.id,
+                    actions: ['an_gang'],
+                    tile: tile,
+                    anGangOptions: anGangActions
+                });
+            }
+        } else if (jiaGangActions.length > 0 && !this.gameState.pendingZimo) {
+            // 如果没有暗杠，再检查加杠
             if (player.socket) {
                 player.socket.emit('action_available', {
                     playerId: player.id,
@@ -1557,7 +1579,7 @@ class MahjongRoom {
             this.notifyCurrentPlayer();
             
         } else if (action.action === 'gang') {
-            // 杠
+            // 明杠：别人打出的牌，自己手中有 3 张
             const sameTiles = player.hand.filter(t => 
                 t.type === tile.type && t.value === tile.value
             );
@@ -1579,6 +1601,37 @@ class MahjongRoom {
             this.broadcast('action_executed', {
                 playerIndex: action.playerIndex,
                 action: 'gang',
+                tile: tile,
+                tileName: getTileName(tile)
+            });
+            
+            // 杠后摸一张牌
+            this.gameState.currentPlayerIndex = action.playerIndex;
+            this.gameState.turnPhase = 'draw';
+            
+            this.broadcastGameState();
+            this.notifyCurrentPlayer();
+            
+        } else if (action.action === 'an_gang') {
+            // 暗杠：手中有 3 张相同的牌，摸到第 4 张
+            const sameTiles = player.hand.filter(t => 
+                t.type === tile.type && t.value === tile.value
+            );
+            
+            sameTiles.forEach(t => {
+                const idx = player.hand.findIndex(h => h.id === t.id);
+                if (idx !== -1) player.hand.splice(idx, 1);
+            });
+            
+            player.melds.push({
+                type: 'gang',
+                tiles: sameTiles,
+                from: player.seatIndex  // 暗杠的 from 是自己
+            });
+            
+            this.broadcast('action_executed', {
+                playerIndex: action.playerIndex,
+                action: 'an_gang',
                 tile: tile,
                 tileName: getTileName(tile)
             });
@@ -1913,20 +1966,24 @@ class MahjongRoom {
         this.checkActionsAfterDiscard(discardTile, aiPlayer.seatIndex);
     }
 
-    // AI决定是否执行动作
+    // AI 决定是否执行动作
     aiDecideAction(aiPlayer, action) {
-        // 简单策略：胡必胡，杠必杠，碰概率50%，吃概率50%
+        // 简单策略：胡必胡，杠必杠，碰概率 50%，吃概率 50%
         if (action.actions.includes('hu')) {
             action.resolved = true;
             action.action = 'hu';
         } else if (action.actions.includes('gang')) {
             action.resolved = true;
             action.action = 'gang';
+        } else if (action.actions.includes('an_gang')) {
+            // 暗杠必杠
+            action.resolved = true;
+            action.action = 'an_gang';
         } else if (action.actions.includes('peng') && Math.random() > 0.5) {
             action.resolved = true;
             action.action = 'peng';
         } else if (action.actions.includes('chi') && Math.random() > 0.5) {
-            // AI吃牌：随机选择吃牌选项
+            // AI 吃牌：随机选择吃牌选项
             action.resolved = true;
             action.action = 'chi';
             if (action.chiOptions && action.chiOptions.length > 0) {

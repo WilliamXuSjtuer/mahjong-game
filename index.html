@@ -2588,8 +2588,9 @@
         </div>
     </div>
 
-    <!-- 操作提示（碰杠胡吃加杠） -->
+    <!-- 操作提示（碰杠胡吃加杠暗杠） -->
     <div class="action-hints" id="actionHints" style="display: none;">
+        <button class="hint-btn" id="anGangBtn" onclick="doAction('an_gang')" style="display: none; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">暗杠</button>
         <button class="hint-btn" id="jiaGangBtn" onclick="doAction('jia_gang')" style="display: none; background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);">加杠</button>
         <button class="hint-btn" id="pengBtn" onclick="doAction('peng')" style="display: none; background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);">碰</button>
         <button class="hint-btn" id="gangBtn" onclick="doAction('gang')" style="display: none; background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);">杠</button>
@@ -4048,13 +4049,13 @@
                 const playerVoice = player?.voice || getPlayerVoiceBySeat(data.playerIndex);
                 const isMe = data.playerIndex === mySeatIndex;
                 
-                // 【修复】如果是加杠动作，立即停止倒计时，避免超时
-                if (data.action === 'jia_gang' && isMe) {
-                    stopDiscardCountdown('action_executed: jia_gang');
+                // 【修复】如果是加杠或暗杠动作，立即停止倒计时，避免超时
+                if ((data.action === 'jia_gang' || data.action === 'an_gang') && isMe) {
+                    stopDiscardCountdown('action_executed: gang');
                 }
                 
-                // 显示动作特效（碰/杠/胡/加杠/吃 大字动画）
-                if (data.action === 'peng' || data.action === 'gang' || data.action === 'hu' || data.action === 'hu_zimo' || data.action === 'jia_gang' || data.action === 'chi') {
+                // 显示动作特效（碰/杠/胡/加杠/吃/暗杠 大字动画）
+                if (data.action === 'peng' || data.action === 'gang' || data.action === 'hu' || data.action === 'hu_zimo' || data.action === 'jia_gang' || data.action === 'chi' || data.action === 'an_gang') {
                     showActionEffect(data.action, playerName);
                 }
                 
@@ -4066,6 +4067,9 @@
                     speakGang(playerVoice);
                 } else if (data.action === 'jia_gang') {
                     showToast(`${isMe ? '你' : playerName} 加杠！`);
+                    speakGang(playerVoice);
+                } else if (data.action === 'an_gang') {
+                    showToast(`${isMe ? '你' : playerName} 暗杠！`);
                     speakGang(playerVoice);
                 } else if (data.action === 'hu') {
                     showToast(`${isMe ? '你' : playerName} 胡了！`);
@@ -5076,6 +5080,7 @@
             const actionHints = document.getElementById('actionHints');
             if (!actionHints) return;
             
+            const anGangBtn = document.getElementById('anGangBtn');
             const jiaGangBtn = document.getElementById('jiaGangBtn');
             const pengBtn = document.getElementById('pengBtn');
             const gangBtn = document.getElementById('gangBtn');
@@ -5084,6 +5089,7 @@
             const passBtn = document.getElementById('passBtn');
             
             // 重置所有按钮
+            if (anGangBtn) anGangBtn.style.display = 'none';
             if (jiaGangBtn) jiaGangBtn.style.display = 'none';
             if (pengBtn) pengBtn.style.display = 'none';
             if (gangBtn) gangBtn.style.display = 'none';
@@ -5091,7 +5097,10 @@
             if (chiBtn) chiBtn.style.display = 'none';
             if (passBtn) passBtn.style.display = 'none';
             
-            // 根据actions参数显示对应按钮
+            // 根据 actions 参数显示对应按钮
+            if (anGangBtn && actions.includes('an_gang')) {
+                anGangBtn.style.display = 'inline-block';
+            }
             if (jiaGangBtn && actions.includes('jia_gang')) {
                 jiaGangBtn.style.display = 'inline-block';
             }
@@ -5116,6 +5125,11 @@
             }
             
             actionHints.style.display = 'flex';
+            
+            // 保存暗杠选项供后续使用
+            if (data && data.anGangOptions) {
+                window.currentAnGangOptions = data.anGangOptions;
+            }
             
             // 保存加杠选项供后续使用
             if (data && data.jiaGangOptions) {
@@ -5219,7 +5233,7 @@
                     if (window.currentJiaGangOptions.length === 1) {
                         actionData.selectedMeldIndex = window.currentJiaGangOptions[0].meldIndex;
                     } else {
-                        // 多个加杠选项时，默认选择第一个（后续可以添加选择UI）
+                        // 多个加杠选项时，默认选择第一个（后续可以添加选择 UI）
                         actionData.selectedMeldIndex = window.currentJiaGangOptions[0].meldIndex;
                     }
                 }
@@ -5231,7 +5245,7 @@
             hideResponseButtons();
             
             // 显示动作特效（只在本地显示，不重复播放音频）
-            if (action === 'peng' || action === 'gang' || action === 'hu' || action === 'hu_zimo' || action === 'jia_gang') {
+            if (action === 'peng' || action === 'gang' || action === 'hu' || action === 'hu_zimo' || action === 'jia_gang' || action === 'an_gang') {
                 showActionEffect(action);
             }
         }
@@ -6304,6 +6318,7 @@
                 'peng': '碰！',
                 'gang': '杠！',
                 'jia_gang': '加杠！',
+                'an_gang': '暗杠！',
                 'hu': '胡！',
                 'zimo': '自摸！',
                 'hu_zimo': '自摸！',
