@@ -1187,7 +1187,8 @@ class MahjongRoom {
                     // 广播敲牌状态给所有玩家
                     this.broadcast('player_qiao', {
                         playerIndex: player.seatIndex,
-                        username: player.username
+                        username: player.username,
+                        voice: player.voice || 'female01'
                     });
                     
                     // 广播出牌
@@ -1891,7 +1892,8 @@ class MahjongRoom {
             // 广播AI敲牌状态
             this.broadcast('player_qiao', {
                 playerIndex: aiPlayer.seatIndex,
-                username: aiPlayer.username
+                username: aiPlayer.username,
+                voice: aiPlayer.voice || 'female01'
             });
         }
         
@@ -2164,10 +2166,10 @@ class MahjongRoom {
             totalFan += 1;
         }
         
-        // 至少1番
+        // 基本胡（0 番）- 无特殊番型时的基础胡牌
         if (totalFan === 0) {
-            totalFan = 1;
-            fanList.push({ name: '基本胡', fan: 1 });
+            totalFan = 0;
+            fanList.push({ name: '基本胡', fan: 0 });
         }
         
         return { fanList, totalFan };
@@ -3101,7 +3103,8 @@ io.on('connection', (socket) => {
                 // 广播敲牌状态给所有玩家
                 room.broadcast('player_qiao', {
                     playerIndex: player.seatIndex,
-                    username: player.username
+                    username: player.username,
+                    voice: player.voice || 'female01'
                 });
                 
                 // 通知前端刷新状态

@@ -453,6 +453,51 @@
             0%, 100% { box-shadow: 0 0 0 0 rgba(212,175,55,0.7); }
             50% { box-shadow: 0 0 0 10px rgba(212,175,55,0); }
         }
+        
+        @keyframes avatarPulse {
+            0%, 100% { 
+                box-shadow: 0 0 0 0 rgba(212,175,55,0.8), 0 0 20px rgba(212,175,55,0.4);
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 0 0 8px rgba(212,175,55,0), 0 0 30px rgba(212,175,55,0.6);
+                transform: scale(1.05);
+            }
+        }
+        
+        .player-avatar.current-turn-active {
+            animation: avatarPulse 1.5s ease-in-out infinite;
+            border: 3px solid var(--gold);
+        }
+        
+        .hand-highlight {
+            border: 2px solid var(--gold) !important;
+            box-shadow: 0 0 15px rgba(212,175,55,0.5), inset 0 0 10px rgba(212,175,55,0.1);
+            border-radius: 8px;
+            padding: 5px;
+            background: rgba(212,175,55,0.05);
+        }
+        
+        .opponent-hand.hand-highlight {
+            border-radius: 10px;
+            padding: 8px;
+        }
+        
+        @keyframes discardZonePulse {
+            0%, 100% { 
+                border-color: var(--gold);
+                box-shadow: 0 0 10px rgba(212,175,55,0.3);
+            }
+            50% { 
+                border-color: #ffd700;
+                box-shadow: 0 0 20px rgba(212,175,55,0.6);
+            }
+        }
+        
+        .discard-zone.current-turn-active {
+            animation: discardZonePulse 1.5s ease-in-out infinite;
+            border: 2px solid var(--gold);
+        }
 
         .player-name {
             font-size: 1.2rem;
@@ -530,12 +575,11 @@
         }
 
         .discard-zone.bottom {
-            border: 1px solid var(--gold);
-            background: rgba(212,175,55,0.1);
+            /* 移除金色边框，与其他弃牌区样式一致 */
         }
 
         .discard-zone.bottom .zone-label {
-            color: var(--gold);
+            /* 文字颜色与其他弃牌区一致 */
         }
 
         /* 玩家区域 - 单人模式样式 */
@@ -2444,28 +2488,7 @@
         <div class="mahjong-table">
             <!-- 对手区域 - 网格布局 -->
             <div class="opponents-area">
-                <div class="opponent" id="opponent2">
-                    <div class="player-info">
-                        <div class="player-avatar" id="opponent2Avatar">🤖</div>
-                        <span class="player-name" id="opponent2Name">AI-南</span>
-                        <span class="player-wind">南</span>
-                    </div>
-                    <div class="opponent-hand" id="opponent2Hand"></div>
-                    <div class="melds-area" id="opponent2Melds"></div>
-                    <div class="opponent-flowers" id="opponent2Flowers"></div>
-                    <div class="seat-discards" id="opponent2Discards"></div>
-                </div>
-                <div class="opponent" id="opponent1">
-                    <div class="player-info">
-                        <div class="player-avatar" id="opponent1Avatar">🤖</div>
-                        <span class="player-name" id="opponent1Name">AI-东</span>
-                        <span class="player-wind">东</span>
-                    </div>
-                    <div class="opponent-hand" id="opponent1Hand"></div>
-                    <div class="melds-area" id="opponent1Melds"></div>
-                    <div class="opponent-flowers" id="opponent1Flowers"></div>
-                    <div class="seat-discards" id="opponent1Discards"></div>
-                </div>
+                <!-- 左家 (上家，relSeat=3) -->
                 <div class="opponent" id="opponent3">
                     <div class="player-info">
                         <div class="player-avatar" id="opponent3Avatar">🤖</div>
@@ -2477,21 +2500,45 @@
                     <div class="opponent-flowers" id="opponent3Flowers"></div>
                     <div class="seat-discards" id="opponent3Discards"></div>
                 </div>
+                <!-- 对家 (relSeat=2) -->
+                <div class="opponent" id="opponent2">
+                    <div class="player-info">
+                        <div class="player-avatar" id="opponent2Avatar">🤖</div>
+                        <span class="player-name" id="opponent2Name">AI-西</span>
+                        <span class="player-wind">西</span>
+                    </div>
+                    <div class="opponent-hand" id="opponent2Hand"></div>
+                    <div class="melds-area" id="opponent2Melds"></div>
+                    <div class="opponent-flowers" id="opponent2Flowers"></div>
+                    <div class="seat-discards" id="opponent2Discards"></div>
+                </div>
+                <!-- 右家 (下家，relSeat=1) -->
+                <div class="opponent" id="opponent1">
+                    <div class="player-info">
+                        <div class="player-avatar" id="opponent1Avatar">🤖</div>
+                        <span class="player-name" id="opponent1Name">AI-南</span>
+                        <span class="player-wind">南</span>
+                    </div>
+                    <div class="opponent-hand" id="opponent1Hand"></div>
+                    <div class="melds-area" id="opponent1Melds"></div>
+                    <div class="opponent-flowers" id="opponent1Flowers"></div>
+                    <div class="seat-discards" id="opponent1Discards"></div>
+                </div>
             </div>
 
             <!-- 中央区域 - 四方向弃牌区 -->
             <div class="center-area">
                 <div class="discard-zone top" id="discard1">
-                    <div class="zone-label">东家出牌</div>
+                    <div class="zone-label">玩家出牌</div>
                     <div class="discards"></div>
                 </div>
                 <div class="discard-sides">
                     <div class="discard-zone left" id="discard2">
-                        <div class="zone-label">南家</div>
+                        <div class="zone-label">玩家出牌</div>
                         <div class="discards"></div>
                     </div>
                     <div class="discard-zone right" id="discard3">
-                        <div class="zone-label">北家</div>
+                        <div class="zone-label">玩家出牌</div>
                         <div class="discards"></div>
                     </div>
                 </div>
@@ -4050,10 +4097,17 @@
                 showQiaoModal(data.message, data.tingTiles);
             });
             
-            // 玩家敲牌广播（显示敲牌标记）
+            // 玩家敲牌广播（显示敲牌标记，播放ting音效）
             socket.on('player_qiao', (data) => {
                 console.log('玩家敲牌:', data);
                 showToast(`${data.username} 已敲牌！`, 2000);
+                
+                // 播放ting音效
+                if (data.playerIndex !== mySeatIndex) {
+                    const voice = data.voice || 'female01';
+                    playActionAudio('ting', voice);
+                }
+                
                 renderGame();
             });
             
@@ -4739,6 +4793,9 @@
             }
             
             updateActionButtons();
+            updateDiscardArea();
+            updateCurrentPlayerHighlight();
+            updateCurrentPlayerHighlight();
             
             const isMenQing = !currentMyPlayer.melds || currentMyPlayer.melds.length === 0;
             const menqingStatusEl = document.getElementById('menqingStatus');
@@ -4920,10 +4977,14 @@
                 centerDeckCount.textContent = gameState.deckRemaining;
             }
             
-            // 每个玩家的弃牌显示在自己门前
+            // 弃牌区映射：relSeat 0=自己 (底部), 1=右家 (右侧), 2=对家 (顶部), 3=左家 (左侧)
+            const discardMapping = [0, 3, 1, 2];
+            
+            // 每个玩家的弃牌显示在对应的弃牌区
             gameState.players.forEach(player => {
                 const displaySeat = getDisplaySeat(player.seatIndex);
-                const discardZone = document.getElementById(`discard${displaySeat}`);
+                const discardIndex = discardMapping[displaySeat];
+                const discardZone = document.getElementById(`discard${discardIndex}`);
                 if (!discardZone) return;
                 
                 const container = discardZone.querySelector('.discards');
@@ -4941,12 +5002,10 @@
                     zoneLabel.innerHTML = `<span style="color: #e74c3c; font-weight: bold;">🔔 敲牌</span>`;
                 } else if (zoneLabel && displaySeat === 0) {
                     // 恢复默认标签
-                    zoneLabel.textContent = '我的出牌';
+                    zoneLabel.textContent = `${player.username} 的出牌`;
                 } else if (zoneLabel) {
-                    const windNames = ['', '东家出牌', '南家', '北家'];
-                    if (windNames[displaySeat]) {
-                        zoneLabel.textContent = windNames[displaySeat];
-                    }
+                    // 显示玩家用户名
+                    zoneLabel.textContent = `${player.username} 的出牌`;
                 }
             });
         }
@@ -6334,6 +6393,65 @@
                 handArea.classList.add('my-turn');
             } else {
                 handArea.classList.remove('my-turn');
+            }
+        }
+        
+        // 更新当前出牌玩家的视觉高亮效果
+        function updateCurrentPlayerHighlight() {
+            if (!gameState) return;
+            
+            // 清除所有玩家的高亮效果
+            document.querySelectorAll('.player-avatar').forEach(avatar => {
+                avatar.classList.remove('current-turn-active');
+            });
+            document.querySelectorAll('.hand-highlight').forEach(hand => {
+                hand.classList.remove('hand-highlight');
+            });
+            document.querySelectorAll('.discard-zone').forEach(zone => {
+                zone.classList.remove('current-turn-active');
+            });
+            
+            // 只在出牌阶段高亮
+            if (gameState.turnPhase !== 'discard') return;
+            
+            const currentPlayerIndex = gameState.currentPlayerIndex;
+            const isViewerMode = gameState.isViewer || isViewer;
+            
+            // 计算座位映射
+            let mySeatIdx;
+            if (isViewerMode) {
+                mySeatIdx = 0;
+            } else {
+                mySeatIdx = gameState.players.findIndex(p => p.seatIndex === mySeatIndex);
+            }
+            
+            const seatMapping = [];
+            for (let i = 0; i < 4; i++) {
+                seatMapping[(i - mySeatIdx + 4) % 4] = i;
+            }
+            
+            // 找到当前出牌玩家对应的相对座位
+            const relSeat = seatMapping.indexOf(currentPlayerIndex);
+            
+            // 弃牌区映射：relSeat 0=自己(底部), 1=右家(右侧), 2=对家(顶部), 3=左家(左侧)
+            const discardMapping = [0, 3, 1, 2];
+            const discardZoneId = `discard${discardMapping[relSeat]}`;
+            const discardZone = document.getElementById(discardZoneId);
+            
+            if (relSeat === 0) {
+                // 轮到底部玩家（自己或观战视角的座位0）
+                const playerAvatar = document.getElementById('playerAvatar');
+                const playerHand = document.getElementById('playerHand');
+                if (playerAvatar) playerAvatar.classList.add('current-turn-active');
+                if (playerHand) playerHand.classList.add('hand-highlight');
+                if (discardZone) discardZone.classList.add('current-turn-active');
+            } else if (relSeat >= 1 && relSeat <= 3) {
+                // 轮到对手
+                const opponentAvatar = document.getElementById(`opponent${relSeat}Avatar`);
+                const opponentHand = document.getElementById(`opponent${relSeat}Hand`);
+                if (opponentAvatar) opponentAvatar.classList.add('current-turn-active');
+                if (opponentHand) opponentHand.classList.add('hand-highlight');
+                if (discardZone) discardZone.classList.add('current-turn-active');
             }
         }
         
