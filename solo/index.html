@@ -2368,7 +2368,7 @@
                 return;
             }
             
-            // 延迟摸牌，让UI先更新
+            // 延迟摸牌，让 UI 先更新
             setTimeout(() => {
                 if (gameState.gameOver) return;
                 
@@ -2387,8 +2387,8 @@
                     
                     updateUI();
                     
-                    // 继续摸牌直到非花牌
-                    setTimeout(() => playerAutoDrawTile(), 700);
+                    // 等待语音播放完毕（约 2 秒）后再摸下一张牌
+                    setTimeout(() => playerAutoDrawTile(), 2000);
             } else {
                 // 普通牌，加入手牌（放在最右边，不理牌）
                 gameState.players[0].hand.push(tile);
