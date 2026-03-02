@@ -773,14 +773,15 @@ class MahjongRoom {
                 isBot: p.isBot,
                 isHost: p.isHost,
                 offline: p.offline || false,
-                aiTakeover: p.aiTakeover || false,  // AI接管状态
+                aiTakeover: p.aiTakeover || false,  // AI 接管状态
                 handCount: p.hand.length,
                 hand: p.id === playerId ? p.hand : null,
                 melds: p.melds,
                 discards: p.discards,
                 flowers: p.flowers,
                 isTing: p.isTing,
-                isQiao: p.isQiao
+                isQiao: p.isQiao,
+                sankouCounts: p.sankouCounts || [0, 0, 0, 0]  // 【新增】包三口计数
             })),
             currentPlayerIndex: this.gameState.currentPlayerIndex,
             turnPhase: this.gameState.turnPhase,
@@ -815,7 +816,8 @@ class MahjongRoom {
                 discards: p.discards,
                 flowers: p.flowers,
                 isTing: p.isTing,
-                isQiao: p.isQiao
+                isQiao: p.isQiao,
+                sankouCounts: p.sankouCounts || [0, 0, 0, 0]  // 【新增】包三口计数
             })),
             currentPlayerIndex: this.gameState.currentPlayerIndex,
             turnPhase: this.gameState.turnPhase,
@@ -2000,21 +2002,25 @@ class MahjongRoom {
         
         this.gameState.lastDiscard = discardTile;
         this.gameState.lastDiscardPlayer = aiPlayer.seatIndex;
-        this.gameState.lastDrawnTile = null;  // AI出牌后清除记录
-        this.gameState.gangShangPao = false; // 【新增】AI出牌后清除杠上炮标记
+        this.gameState.lastDrawnTile = null;  // AI 出牌后清除记录
+        this.gameState.gangShangPao = false; // 【新增】AI 出牌后清除杠上炮标记
         
-        // 检查AI是否听牌，如果听牌了自动敲牌
-        if (!aiPlayer.isTing && !aiPlayer.isQiao && this.canHu(aiPlayer.hand, aiPlayer.melds)) {
-            aiPlayer.isTing = true;
-            console.log(`AI ${aiPlayer.username} 听牌！自动敲牌`);
-            aiPlayer.isQiao = true;
-            
-            // 广播AI敲牌状态
-            this.broadcast('player_qiao', {
-                playerIndex: aiPlayer.seatIndex,
-                username: aiPlayer.username,
-                voice: aiPlayer.voice || 'female01'
-            });
+        // 【修复】检查 AI 是否听牌，如果听牌了自动敲牌
+        // 听牌检测：检查是否再摸任意一张牌就能胡
+        if (!aiPlayer.isTing && !aiPlayer.isQiao) {
+            const tingTiles = this.getTingTiles(aiPlayer.hand, aiPlayer.melds);
+            if (tingTiles.length > 0) {
+                aiPlayer.isTing = true;
+                aiPlayer.isQiao = true;
+                console.log(`AI ${aiPlayer.username} 听牌！自动敲牌，听牌：${tingTiles.map(t => t.tileName).join(', ')}`);
+                
+                // 广播 AI 敲牌状态
+                this.broadcast('player_qiao', {
+                    playerIndex: aiPlayer.seatIndex,
+                    username: aiPlayer.username,
+                    voice: aiPlayer.voice || 'female01'
+                });
+            }
         }
         
         this.broadcast('tile_discarded', {
@@ -2156,11 +2162,10 @@ class MahjongRoom {
     // 获取听牌列表
     getTingTiles(hand, melds = []) {
         const tingTiles = [];
-        const allTileTypes = ['wan', 'tiao', 'tong', 'wind'];
         
-        for (const type of allTileTypes) {
-            const maxValue = type === 'wind' ? 4 : 9;
-            for (let value = 1; value <= maxValue; value++) {
+        // 数字牌：万、条、筒
+        for (const type of ['wan', 'tiao', 'tong']) {
+            for (let value = 1; value <= 9; value++) {
                 const testTile = { type, value };
                 const testHand = [...hand, testTile];
                 if (this.canHu(testHand, melds)) {
@@ -2168,6 +2173,25 @@ class MahjongRoom {
                 }
             }
         }
+        
+        // 字牌：风向
+        for (const windValue of WINDS) {
+            const testTile = { type: 'wind', value: windValue };
+            const testHand = [...hand, testTile];
+            if (this.canHu(testHand, melds)) {
+                tingTiles.push({ type: 'wind', value: windValue, tileName: getTileName(testTile) });
+            }
+        }
+        
+        // 箭牌：中发白
+        for (const honorValue of ['zhong', 'fa', 'bai']) {
+            const testTile = { type: 'honor', value: honorValue };
+            const testHand = [...hand, testTile];
+            if (this.canHu(testHand, melds)) {
+                tingTiles.push({ type: 'honor', value: honorValue, tileName: getTileName(testTile) });
+            }
+        }
+        
         return tingTiles;
     }
     

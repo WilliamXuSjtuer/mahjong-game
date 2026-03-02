@@ -470,6 +470,38 @@
             border: 3px solid var(--gold);
         }
         
+        /* 【新增】包三口指示器样式 */
+        .sankou-indicator {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+            box-shadow: 0 2px 8px rgba(231,76,60,0.5);
+            animation: sankouPulse 2s infinite;
+            z-index: 10;
+        }
+
+        @keyframes sankouPulse {
+            0%, 100% { 
+                box-shadow: 0 0 0 0 rgba(231,76,60,0.7);
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 0 0 6px rgba(231,76,60,0);
+                transform: scale(1.1);
+            }
+        }
+        
         .hand-highlight {
             border: 2px solid var(--gold) !important;
             box-shadow: 0 0 15px rgba(212,175,55,0.5), inset 0 0 10px rgba(212,175,55,0.1);
@@ -2560,7 +2592,10 @@
                 <!-- 左家 (上家，relSeat=3) -->
                 <div class="opponent" id="opponent3">
                     <div class="player-info">
-                        <div class="player-avatar" id="opponent3Avatar">🤖</div>
+                        <div class="player-avatar" id="opponent3Avatar">
+                            🤖
+                            <div class="sankou-indicator" id="opponent3Sankou" style="display: none;">3</div>
+                        </div>
                         <span class="player-name" id="opponent3Name">AI-北</span>
                         <span class="player-wind">北</span>
                     </div>
@@ -2572,7 +2607,10 @@
                 <!-- 对家 (relSeat=2) -->
                 <div class="opponent" id="opponent2">
                     <div class="player-info">
-                        <div class="player-avatar" id="opponent2Avatar">🤖</div>
+                        <div class="player-avatar" id="opponent2Avatar">
+                            🤖
+                            <div class="sankou-indicator" id="opponent2Sankou" style="display: none;">3</div>
+                        </div>
                         <span class="player-name" id="opponent2Name">AI-西</span>
                         <span class="player-wind">西</span>
                     </div>
@@ -2584,7 +2622,10 @@
                 <!-- 右家 (下家，relSeat=1) -->
                 <div class="opponent" id="opponent1">
                     <div class="player-info">
-                        <div class="player-avatar" id="opponent1Avatar">🤖</div>
+                        <div class="player-avatar" id="opponent1Avatar">
+                            🤖
+                            <div class="sankou-indicator" id="opponent1Sankou" style="display: none;">3</div>
+                        </div>
                         <span class="player-name" id="opponent1Name">AI-南</span>
                         <span class="player-wind">南</span>
                     </div>
@@ -2620,7 +2661,10 @@
             <!-- 玩家区域 -->
             <div class="player-area">
                 <div class="player-info">
-                    <div class="player-avatar current-turn" id="playerAvatar">😊</div>
+                    <div class="player-avatar current-turn" id="playerAvatar">
+                        😊
+                        <div class="sankou-indicator" id="playerSankou" style="display: none;">3</div>
+                    </div>
                     <span class="player-name" id="playerName">玩家</span>
                     <span class="player-wind" id="playerWind">西</span>
                     <span id="turnIndicatorLocal" style="margin-left: 10px; color: var(--gold); display: none;">轮到你了！</span>
@@ -4915,6 +4959,9 @@
                 }).join('');
             }
             
+            // 【新增】更新包三口指示器
+            updateSankouIndicators();
+            
             updateActionButtons();
             updateDiscardArea();
             updateCurrentPlayerHighlight();
@@ -6045,6 +6092,49 @@
             }
             
             document.getElementById('roundResultModal').classList.add('active');
+        }
+        
+        // 【新增】更新包三口指示器
+        function updateSankouIndicators() {
+            if (!gameState || !gameState.players) return;
+            
+            // 获取当前玩家（以玩家视角为准）
+            const currentPlayer = gameState.players.find(p => p.seatIndex === mySeatIndex);
+            if (!currentPlayer) return;
+            
+            // 更新所有玩家的包三口指示器
+            for (let i = 0; i < 4; i++) {
+                const player = gameState.players[i];
+                if (!player) continue;
+                
+                // 【修复】获取当前玩家对该玩家的三口计数
+                // sankouCounts 的含义：player.sankouCounts[X] 表示 player 对 X 玩家的三口计数
+                const sankouCount = currentPlayer.sankouCounts ? currentPlayer.sankouCounts[i] : 0;
+                
+                // 确定指示器元素 ID
+                let indicatorId;
+                if (i === mySeatIndex) {
+                    indicatorId = 'playerSankou';
+                } else {
+                    // 根据相对座位确定
+                    const relSeat = (i - mySeatIndex + 4) % 4;
+                    if (relSeat === 1) indicatorId = 'opponent1Sankou';
+                    else if (relSeat === 2) indicatorId = 'opponent2Sankou';
+                    else if (relSeat === 3) indicatorId = 'opponent3Sankou';
+                    else continue;
+                }
+                
+                // 更新指示器显示
+                const indicatorEl = document.getElementById(indicatorId);
+                if (indicatorEl) {
+                    if (sankouCount >= 3) {
+                        indicatorEl.style.display = 'flex';
+                        indicatorEl.textContent = sankouCount;
+                    } else {
+                        indicatorEl.style.display = 'none';
+                    }
+                }
+            }
         }
         
         // 更新玩家准备状态显示
