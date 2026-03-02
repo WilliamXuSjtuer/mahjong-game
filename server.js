@@ -219,6 +219,10 @@ class MahjongRoom {
         this.matchStarted = false;       // 比赛是否开始
         this.lastWinnerIndex = -1;       // 上局赢家（用于确定庄家）
         
+        // 荒番系统属性
+        this.huangFanCount = 0;          // 荒番计数器（流局次数）
+        this.isHuangFanRound = false;    // 当前是否为荒番局
+        
         // 暂停功能属性
         this.isPaused = false;           // 游戏是否暂停
         this.pausePlayer = null;         // 暂停的玩家
@@ -649,6 +653,12 @@ class MahjongRoom {
         console.log(`房间 ${this.code} 开始第 ${this.currentRound}/${this.totalRounds} 局`);
         this.gameRunning = true;
         
+        // 荒番局逻辑：如果上一局是流局，则本局为荒番局
+        this.isHuangFanRound = this.huangFanCount > 0;
+        if (this.isHuangFanRound) {
+            console.log(`本局为荒番局，荒番数：${this.huangFanCount}`);
+        }
+        
         // 创建并洗牌
         let deck = shuffleDeck(createDeck());
         
@@ -676,7 +686,11 @@ class MahjongRoom {
             lastDrawnTile: null,     // 【新增】记录最后摸的牌（用于超时自动出牌）
             roundNumber: 1,
             gameOver: false,
-            waitingForQiao: false    // 【新增】是否等待敲牌确认
+            waitingForQiao: false,   // 【新增】是否等待敲牌确认
+            huangFanRound: this.huangFanCount > 0,  // 是否为荒番局
+            huangFanCount: this.huangFanCount,      // 荒番数
+            cangyingTile: null,      // 【新增】苍蝇牌
+            gangShangPao: false      // 【新增】杠上炮标记（杠牌后补牌再打牌点炮）
         };
         
         // 发牌：每人13张，庄家14张（花牌自动补花）
@@ -1183,6 +1197,7 @@ class MahjongRoom {
         this.gameState.lastDiscard = tile;
         this.gameState.lastDiscardPlayer = player.seatIndex;
         this.gameState.lastDrawnTile = null; // 【新增】清除记录
+        this.gameState.gangShangPao = false; // 【新增】出牌后清除杠上炮标记
         
         // 检查玩家是否听牌，如果听牌了则通知前端弹窗确认敲牌
         // 出牌后手牌是13张，需要检测是否听牌（差一张胡牌）
@@ -1539,7 +1554,11 @@ class MahjongRoom {
         if (action.action === 'hu') {
             // 胡牌
             player.hand.push(tile);
-            this.endGame(`${player.username} 胡牌！`);
+            
+            // 检测杠上炮：杠牌后补牌再打出的牌点炮
+            const isGangShangPao = this.gameState.gangShangPao;
+            
+            this.endGame(`${player.username} 胡牌！`, isGangShangPao);
             
         } else if (action.action === 'peng') {
             // 碰
@@ -1608,6 +1627,7 @@ class MahjongRoom {
             // 杠后摸一张牌
             this.gameState.currentPlayerIndex = action.playerIndex;
             this.gameState.turnPhase = 'draw';
+            this.gameState.gangShangPao = true;  // 【新增】设置杠上炮标记
             
             this.broadcastGameState();
             this.notifyCurrentPlayer();
@@ -1639,6 +1659,7 @@ class MahjongRoom {
             // 杠后摸一张牌
             this.gameState.currentPlayerIndex = action.playerIndex;
             this.gameState.turnPhase = 'draw';
+            this.gameState.gangShangPao = true;  // 【新增】设置杠上炮标记
             
             this.broadcastGameState();
             this.notifyCurrentPlayer();
@@ -1662,7 +1683,13 @@ class MahjongRoom {
                 return;
             }
             
-            const chiTiles = selectedOption.tiles;
+            const chiTiles = selectedOption.tiles.map(t => {
+                const newTile = {...t};
+                if (t.id === tile.id) {
+                    newTile.from = this.gameState.lastDiscardPlayer;
+                }
+                return newTile;
+            });
             
             // 从手牌中移除吃牌的两张牌（保留打出的那张，即 tile）
             const tilesToRemove = chiTiles.filter(t => t.id !== tile.id);
@@ -1727,6 +1754,7 @@ class MahjongRoom {
             // 杠后摸一张牌
             this.gameState.currentPlayerIndex = action.playerIndex;
             this.gameState.turnPhase = 'draw';
+            this.gameState.gangShangPao = true;  // 【新增】设置杠上炮标记
             
             // 【修复】清除之前的出牌超时计时器，避免加杠后超时
             if (this.gameState.discardTimeout) {
@@ -1849,6 +1877,7 @@ class MahjongRoom {
                     });
                     
                     // 杠后摸一张牌
+                    this.gameState.gangShangPao = true;  // 【新增】设置杠上炮标记
                     const newTile = this.drawTileForPlayer(aiPlayer, false);
                     if (!newTile) {
                         this.endRound('draw', -1, -1, false, false);
@@ -1941,6 +1970,7 @@ class MahjongRoom {
         this.gameState.lastDiscard = discardTile;
         this.gameState.lastDiscardPlayer = aiPlayer.seatIndex;
         this.gameState.lastDrawnTile = null;  // AI出牌后清除记录
+        this.gameState.gangShangPao = false; // 【新增】AI出牌后清除杠上炮标记
         
         // 检查AI是否听牌，如果听牌了自动敲牌
         if (!aiPlayer.isTing && !aiPlayer.isQiao && this.canHu(aiPlayer.hand, aiPlayer.melds)) {
@@ -2187,10 +2217,10 @@ class MahjongRoom {
             totalFan += 1;
         }
         
-        // 2. 自摸（1番）
+        // 2. 自摸（0 番）- 自己摸牌胡
         if (isZimo) {
-            fanList.push({ name: '自摸', fan: 1 });
-            totalFan += 1;
+            fanList.push({ name: '自摸', fan: 0 });
+            totalFan += 0;
         }
         
         // 3. 检测七对子（2番）
@@ -2223,9 +2253,15 @@ class MahjongRoom {
             totalFan += 2;
         }
         
-        // 7. 杠开（1番）- 杠后摸牌胡
+        // 7. 杠开（1 番）- 杠后摸牌胡
         if (isGangKai) {
             fanList.push({ name: '杠开', fan: 1 });
+            totalFan += 1;
+        }
+        
+        // 8. 检测大单吊（1 番）- 胡牌时手牌只剩一张单钓
+        if (this.isDaDanDiao(hand, melds)) {
+            fanList.push({ name: '大单吊', fan: 1 });
             totalFan += 1;
         }
         
@@ -2236,6 +2272,17 @@ class MahjongRoom {
         }
         
         return { fanList, totalFan };
+    }
+    
+    // 检测大单吊
+    isDaDanDiao(hand, melds) {
+        // 大单吊：胡牌时，手牌只剩 2 张（一对将），其余都是副露
+        // 即：手牌 2 张 + 副露 4 组（12 张）= 14 张
+        if (hand.length === 2 && melds.length === 4) {
+            // 检查手牌是否是对子
+            return hand[0].type === hand[1].type && hand[0].value === hand[1].value;
+        }
+        return false;
     }
     
     // 检测碰碰胡
@@ -2345,13 +2392,93 @@ class MahjongRoom {
         return { huaList, totalHua };
     }
     
-    // 计算本局得分
-    calculateScore(winner, loserIndex, fanResult, huaResult, isZimo) {
-        const MAX_SCORE = 50; // 封顶50分
+    // 计算苍蝇分
+    calculateCangying(player, cangyingTile, fanResult = null) {
+        const cangyingList = [];
+        let totalCangying = 0;
         
-        // 分数 = 花数 × 2^番数
+        if (!cangyingTile) {
+            return { cangyingList, totalCangying };
+        }
+        
+        // 如果没有传入番型结果，则重新计算
+        if (!fanResult) {
+            fanResult = this.calculateFan(player, false, false);
+        }
+        
+        // 调试日志
+        console.log(`[DEBUG] calculateCangying - fanResult:`, JSON.stringify(fanResult));
+        
+        // 检查是否有资格飞苍蝇（有牌型：门清、混一色、清一色、七对、大单吊、碰碰胡）
+        const hasQualifyingFan = fanResult.fanList.some(f => 
+            ['门清', '混一色', '清一色', '七对子', '大单吊', '碰碰胡'].includes(f.name)
+        );
+        
+        console.log(`[DEBUG] calculateCangying - hasQualifyingFan:`, hasQualifyingFan);
+        
+        if (!hasQualifyingFan) {
+            console.log(`[DEBUG] calculateCangying - 没有资格飞苍蝇，返回0分`);
+            return { cangyingList, totalCangying };
+        }
+        
+        // 计算苍蝇分值
+        let cangyingValue = 0;
+        let cangyingName = '';
+        
+        console.log(`[DEBUG] cangyingTile.type:`, cangyingTile.type, `cangyingTile.value:`, cangyingTile.value);
+        
+        // 数字牌类型：wan(万)、tiao(条)、tong(筒)
+        if (cangyingTile.type === 'wan' || cangyingTile.type === 'tiao' || cangyingTile.type === 'tong') {
+            console.log(`[DEBUG] 进入数字牌分支`);
+            const typeName = cangyingTile.type === 'wan' ? '万' : cangyingTile.type === 'tong' ? '筒' : '条';
+            if (cangyingTile.value === 1) {
+                cangyingValue = 10;
+                cangyingName = `苍蝇：${cangyingTile.value}${typeName}`;
+            } else {
+                cangyingValue = cangyingTile.value;
+                cangyingName = `苍蝇：${cangyingTile.value}${typeName}`;
+            }
+        } else if (cangyingTile.type === 'wind') {
+            cangyingValue = 5;
+            cangyingName = `苍蝇：${WIND_NAMES[cangyingTile.value] || '风牌'}`;
+        } else if (['zhong', 'fa', 'bai'].includes(cangyingTile.type)) {
+            cangyingValue = 5;
+            const tileNames = { zhong: '中', fa: '发', bai: '白' };
+            cangyingName = `苍蝇：${tileNames[cangyingTile.type]}`;
+        } else if (cangyingTile.type === 'flower') {
+            cangyingValue = 5;
+            cangyingName = `苍蝇：${FLOWER_NAMES[cangyingTile.value] || '花牌'}`;
+        }
+        
+        if (cangyingValue > 0) {
+            cangyingList.push({ name: cangyingName, value: cangyingValue });
+            totalCangying = cangyingValue;
+        }
+        
+        return { cangyingList, totalCangying };
+    }
+    
+    // 计算本局得分
+    calculateScore(winner, loserIndex, fanResult, huaResult, cangyingResult, isZimo, isHuangFanRound = false, huangFanCount = 0, isGangShangPao = false) {
+        const MAX_SCORE = 50; // 封顶 50 分
+        
+        // 分数 = (花数 × 2^番数) + 苍蝇分
         const baseScore = huaResult.totalHua * Math.pow(2, fanResult.totalFan);
-        const finalScore = Math.min(baseScore, MAX_SCORE);
+        const totalBeforeHuangFan = baseScore + cangyingResult.totalCangying;
+        
+        // 荒番翻倍：总分 × 2^n
+        let finalScore = totalBeforeHuangFan;
+        if (isHuangFanRound && huangFanCount > 0) {
+            finalScore = totalBeforeHuangFan * Math.pow(2, huangFanCount);
+        }
+        
+        // 【新增】杠上炮：点炮分数 × 3
+        if (isGangShangPao) {
+            finalScore = finalScore * 3;
+            console.log(`【杠上炮】分数 ×3：${finalScore / 3} → ${finalScore}`);
+        }
+        
+        finalScore = Math.min(finalScore, MAX_SCORE);
         
         const scoreChanges = [0, 0, 0, 0];
         
@@ -2365,24 +2492,30 @@ class MahjongRoom {
                 }
             }
         } else {
-            // 点炮：放炮者付全部分数
-            scoreChanges[winner.seatIndex] = finalScore * 3;
-            scoreChanges[loserIndex] = -finalScore * 3;
+            // 点炮：放炮者付 1 倍分数（杠上炮时已 ×3）
+            scoreChanges[winner.seatIndex] = finalScore;
+            scoreChanges[loserIndex] = -finalScore;
         }
         
         return {
             baseScore,
+            cangyingScore: cangyingResult.totalCangying,
             finalScore,
             scoreChanges,
             fanDetail: fanResult.fanList,
             huaDetail: huaResult.huaList,
+            cangyingDetail: cangyingResult.cangyingList,
             totalFan: fanResult.totalFan,
-            totalHua: huaResult.totalHua
+            totalHua: huaResult.totalHua,
+            isHuangFanRound,
+            huangFanCount,
+            huangFanMultiplier: isHuangFanRound && huangFanCount > 0 ? Math.pow(2, huangFanCount) : 1,
+            isGangShangPao  // 【新增】返回杠上炮标记
         };
     }
 
     // 结束一局（胡牌或流局）
-    endRound(resultType, winnerIndex = -1, loserIndex = -1, isZimo = false, isGangKai = false) {
+    endRound(resultType, winnerIndex = -1, loserIndex = -1, isZimo = false, isGangKai = false, isGangShangPao = false) {
         this.gameRunning = false;
         this.gameState.gameOver = true;
         
@@ -2394,22 +2527,43 @@ class MahjongRoom {
             clearTimeout(this.gameState.discardTimeout);
         }
         
+        // 处理荒番逻辑：流局时荒番数 +1
+        const isDraw = (resultType === 'draw');
+        if (isDraw) {
+            this.huangFanCount++;
+            console.log(`流局！荒番数 +1，当前荒番数：${this.huangFanCount}`);
+        }
+        
         let roundResult = {
             round: this.currentRound,
             resultType: resultType, // 'hu', 'zimo', 'draw'（流局）
             isZimo: isZimo, // 是否自摸
+            isGangShangPao: isGangShangPao, // 【新增】是否杠上炮
             winnerIndex: winnerIndex,
             loserIndex: loserIndex,
             scoreResult: null,
-            players: []
+            players: [],
+            huangFanCount: this.huangFanCount,  // 荒番数
+            isHuangFanRound: this.isHuangFanRound  // 是否为荒番局
         };
         
         // 如果有人胡牌，计算积分
         if (winnerIndex >= 0) {
             const winner = this.players[winnerIndex];
+            
+            // 胡牌后触发飞苍蝇（从牌墙尾部翻一张）
+            if (this.gameState.deck && this.gameState.deck.length > 0) {
+                // 从牌墙尾部翻一张作为苍蝇牌
+                this.gameState.cangyingTile = this.gameState.deck.pop();
+                console.log(`胡牌后飞苍蝇：${JSON.stringify(this.gameState.cangyingTile)}`);
+            }
+            
             const fanResult = this.calculateFan(winner, isZimo, isGangKai);
             const huaResult = this.calculateHua(winner);
-            const scoreResult = this.calculateScore(winner, loserIndex, fanResult, huaResult, isZimo);
+            const cangyingResult = this.calculateCangying(winner, this.gameState.cangyingTile, fanResult);
+            console.log(`[DEBUG] cangyingResult:`, JSON.stringify(cangyingResult));
+            const scoreResult = this.calculateScore(winner, loserIndex, fanResult, huaResult, cangyingResult, isZimo, this.isHuangFanRound, this.huangFanCount, isGangShangPao);
+            console.log(`[DEBUG] scoreResult:`, JSON.stringify(scoreResult));
             
             // 更新累计积分
             for (let i = 0; i < 4; i++) {
@@ -2452,6 +2606,7 @@ class MahjongRoom {
         roundResult.winnerMelds = winnerMelds;
         roundResult.finalTile = finalTile;
         roundResult.loserUsername = loserUsername;
+        roundResult.cangyingTile = this.gameState.cangyingTile;  // 苍蝇牌
         
         // 保存历史记录
         this.roundHistory.push(roundResult);
@@ -2636,7 +2791,7 @@ class MahjongRoom {
     }
     
     // 旧版结束游戏（保留兼容）
-    endGame(result) {
+    endGame(result, isGangShangPao = false) {
         // 解析结果判断胡牌类型
         if (result.includes('自摸')) {
             const winnerName = result.split(' ')[0];
@@ -2651,7 +2806,8 @@ class MahjongRoom {
             if (winner) {
                 // 点炮者是上一个出牌的人
                 const loserIndex = this.gameState.lastDiscardPlayer;
-                this.endRound('hu', winner.seatIndex, loserIndex, false, false);
+                // 【新增】传递杠上炮标记（这里用 isGangKai 传递，因为杠上炮算点炮的特殊情况）
+                this.endRound('hu', winner.seatIndex, loserIndex, false, false, isGangShangPao);
                 return;
             }
         } else if (result.includes('流局')) {
