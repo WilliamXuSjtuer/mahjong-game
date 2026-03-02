@@ -5517,6 +5517,14 @@
                     }
                 }
                 socket.emit('player_action', actionData);
+            } 
+            // 如果是暗杠，传递暗杠选项信息
+            else if (action === 'an_gang') {
+                const actionData = { action };
+                if (window.currentAnGangOptions && window.currentAnGangOptions.length > 0) {
+                    actionData.anGangOptions = window.currentAnGangOptions;
+                }
+                socket.emit('player_action', actionData);
             } else {
                 socket.emit('player_action', { action });
             }
