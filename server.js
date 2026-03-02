@@ -375,7 +375,8 @@ class MahjongRoom {
             isTing: false,
             isQiao: false,
             offline: false,
-            offlineTime: null
+            offlineTime: null,
+            sankouCounts: [0, 0, 0, 0]  // 【新增】与其他玩家的三口计数（索引 0-3 对应四个玩家）
         };
         
         this.players.push(player);
@@ -406,7 +407,7 @@ class MahjongRoom {
         
         const aiPlayer = {
             id: 'ai_' + Date.now() + '_' + seatIndex,
-            username: aiNames[seatIndex] || 'AI玩家',
+            username: aiNames[seatIndex] || 'AI 玩家',
             avatar: aiAvatars[seatIndex] || '🤖',
             voice: aiVoice,  // 动态分配的 AI 语音
             socket: null,
@@ -421,7 +422,8 @@ class MahjongRoom {
             flowers: [],
             score: 0,
             isTing: false,
-            isQiao: false
+            isQiao: false,
+            sankouCounts: [0, 0, 0, 0]  // 【新增】与其他玩家的三口计数
         };
         
         this.players.push(aiPlayer);
@@ -1107,8 +1109,9 @@ class MahjongRoom {
         
         // 检查暗杠（手中有 3 张相同的牌，摸到第 4 张）
         const anGangActions = [];
+        // 排除刚摸到的这张牌，统计手中已有的相同牌数量
         const sameTilesInHand = player.hand.filter(t => 
-            t.type === tile.type && t.value === tile.value
+            t.type === tile.type && t.value === tile.value && t.id !== tile.id
         );
         if (sameTilesInHand.length === 3) {
             // 手中有 3 张，加上刚摸的这张正好 4 张，可以暗杠
@@ -1579,6 +1582,11 @@ class MahjongRoom {
                 from: this.gameState.lastDiscardPlayer
             });
             
+            // 【新增】更新三口计数
+            const discardPlayerIndex = this.gameState.lastDiscardPlayer;
+            player.sankouCounts[discardPlayerIndex]++;
+            console.log(`【三口】${player.username} 碰了 ${this.players[discardPlayerIndex].username} 的牌，累计 ${player.sankouCounts[discardPlayerIndex]} 口`);
+            
             // 从弃牌堆移除
             const discardPlayer = this.players[this.gameState.lastDiscardPlayer];
             discardPlayer.discards.pop();
@@ -1614,6 +1622,11 @@ class MahjongRoom {
                 from: this.gameState.lastDiscardPlayer
             });
             
+            // 【新增】更新三口计数
+            const discardPlayerIndex = this.gameState.lastDiscardPlayer;
+            player.sankouCounts[discardPlayerIndex]++;
+            console.log(`【三口】${player.username} 明杠了 ${this.players[discardPlayerIndex].username} 的牌，累计 ${player.sankouCounts[discardPlayerIndex]} 口`);
+            
             const discardPlayer = this.players[this.gameState.lastDiscardPlayer];
             discardPlayer.discards.pop();
             
@@ -1633,11 +1646,12 @@ class MahjongRoom {
             this.notifyCurrentPlayer();
             
         } else if (action.action === 'an_gang') {
-            // 暗杠：手中有 3 张相同的牌，摸到第 4 张
+            // 暗杠：手中有 4 张相同的牌（包含刚摸到的）
             const sameTiles = player.hand.filter(t => 
                 t.type === tile.type && t.value === tile.value
             );
             
+            // 从手牌中移除这 4 张牌
             sameTiles.forEach(t => {
                 const idx = player.hand.findIndex(h => h.id === t.id);
                 if (idx !== -1) player.hand.splice(idx, 1);
@@ -1645,7 +1659,7 @@ class MahjongRoom {
             
             player.melds.push({
                 type: 'gang',
-                tiles: sameTiles,
+                tiles: sameTiles,  // 4 张牌都在副露中
                 from: player.seatIndex  // 暗杠的 from 是自己
             });
             
@@ -1705,6 +1719,11 @@ class MahjongRoom {
                 from: this.gameState.lastDiscardPlayer
             });
             
+            // 【新增】更新三口计数
+            const discardPlayerIndex = this.gameState.lastDiscardPlayer;
+            player.sankouCounts[discardPlayerIndex]++;
+            console.log(`【三口】${player.username} 吃了 ${this.players[discardPlayerIndex].username} 的牌，累计 ${player.sankouCounts[discardPlayerIndex]} 口`);
+            
             // 从弃牌堆移除
             const discardPlayer = this.players[this.gameState.lastDiscardPlayer];
             discardPlayer.discards.pop();
@@ -1743,6 +1762,12 @@ class MahjongRoom {
             meld.type = 'gang';
             meld.from = player.seatIndex;
             meld.tiles.push(tile);
+            
+            // 【修复】从手牌中移除这张牌
+            const tileIndex = player.hand.findIndex(t => t.id === tile.id);
+            if (tileIndex !== -1) {
+                player.hand.splice(tileIndex, 1);
+            }
             
             this.broadcast('action_executed', {
                 playerIndex: action.playerIndex,
@@ -1868,6 +1893,12 @@ class MahjongRoom {
                     meld.type = 'gang';
                     meld.from = aiPlayer.seatIndex;
                     meld.tiles.push(tile);
+                    
+                    // 【修复】从手牌中移除这张牌
+                    const tileIndex = aiPlayer.hand.findIndex(t => t.id === tile.id);
+                    if (tileIndex !== -1) {
+                        aiPlayer.hand.splice(tileIndex, 1);
+                    }
                     
                     this.broadcast('action_executed', {
                         playerIndex: aiPlayer.seatIndex,
@@ -2481,20 +2512,71 @@ class MahjongRoom {
         finalScore = Math.min(finalScore, MAX_SCORE);
         
         const scoreChanges = [0, 0, 0, 0];
+        let sankouInfo = null;  // 【新增】包三口信息
+        
+        // 【新增】检查三口关系
+        const checkSankou = (playerIndex, targetIndex) => {
+            return this.players[playerIndex].sankouCounts[targetIndex] >= 3;
+        };
         
         if (isZimo) {
-            // 自摸：三家各付分数
+            // 自摸：检查是否有包三口关系
+            let sankouPlayer = -1;
             for (let i = 0; i < 4; i++) {
-                if (i === winner.seatIndex) {
-                    scoreChanges[i] = finalScore * 3;
-                } else {
-                    scoreChanges[i] = -finalScore;
+                if (i !== winner.seatIndex && checkSankou(winner.seatIndex, i)) {
+                    sankouPlayer = i;
+                    sankouInfo = {
+                        type: 'zimo',
+                        sankouPlayer: i,
+                        sankouCount: this.players[winner.seatIndex].sankouCounts[i],
+                        message: `${this.players[i].username} 与 ${this.players[winner.seatIndex].username} 有三口关系，单独赔付 5 份`
+                    };
+                    console.log(`【包三口】自摸：${this.players[i].username} 包 ${this.players[winner.seatIndex].username} 的三口，累计 ${this.players[winner.seatIndex].sankouCounts[i]} 口`);
+                    break;
+                }
+            }
+            
+            if (sankouPlayer !== -1) {
+                // 包三口：该玩家单独付 5 份
+                for (let i = 0; i < 4; i++) {
+                    if (i === winner.seatIndex) {
+                        scoreChanges[i] = finalScore * 5;  // 赢家得 5 份
+                    } else if (i === sankouPlayer) {
+                        scoreChanges[i] = -finalScore * 5;  // 包三口者付 5 份
+                    } else {
+                        scoreChanges[i] = 0;  // 其他玩家无关
+                    }
+                }
+            } else {
+                // 正常自摸：三家各付分数
+                for (let i = 0; i < 4; i++) {
+                    if (i === winner.seatIndex) {
+                        scoreChanges[i] = finalScore * 3;
+                    } else {
+                        scoreChanges[i] = -finalScore;
+                    }
                 }
             }
         } else {
-            // 点炮：放炮者付 1 倍分数（杠上炮时已 ×3）
-            scoreChanges[winner.seatIndex] = finalScore;
-            scoreChanges[loserIndex] = -finalScore;
+            // 点炮：检查胡牌者与放炮者是否有三口关系
+            const hasSankou = checkSankou(winner.seatIndex, loserIndex);
+            
+            if (hasSankou) {
+                // 包三口：放炮者付 2 份
+                scoreChanges[winner.seatIndex] = finalScore * 2;
+                scoreChanges[loserIndex] = -finalScore * 2;
+                sankouInfo = {
+                    type: 'dianpao',
+                    sankouPlayer: loserIndex,
+                    sankouCount: this.players[winner.seatIndex].sankouCounts[loserIndex],
+                    message: `${this.players[loserIndex].username} 与 ${this.players[winner.seatIndex].username} 有三口关系，赔付 2 份`
+                };
+                console.log(`【包三口】点炮：${this.players[loserIndex].username} 包 ${this.players[winner.seatIndex].username} 的三口，累计 ${this.players[winner.seatIndex].sankouCounts[loserIndex]} 口`);
+            } else {
+                // 正常点炮：放炮者付 1 倍分数（杠上炮时已 ×3）
+                scoreChanges[winner.seatIndex] = finalScore;
+                scoreChanges[loserIndex] = -finalScore;
+            }
         }
         
         return {
@@ -2510,7 +2592,8 @@ class MahjongRoom {
             isHuangFanRound,
             huangFanCount,
             huangFanMultiplier: isHuangFanRound && huangFanCount > 0 ? Math.pow(2, huangFanCount) : 1,
-            isGangShangPao  // 【新增】返回杠上炮标记
+            isGangShangPao,
+            sankouInfo  // 【新增】返回包三口信息
         };
     }
 

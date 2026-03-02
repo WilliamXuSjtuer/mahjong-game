@@ -1468,6 +1468,31 @@
             font-weight: bold;
         }
         
+        /* 【新增】包三口信息样式 */
+        .sankou-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .sankou-item .sankou-type {
+            color: #f39c12;
+            font-weight: bold;
+        }
+        
+        .sankou-item .sankou-count {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        .sankou-item .sankou-message {
+            width: 100%;
+            color: #fff;
+            margin-top: 4px;
+        }
+        
         /* 胡牌详情区域 */
         .hu-detail-list {
             background: rgba(0,0,0,0.25);
@@ -2733,6 +2758,14 @@
                     <span class="section-total" id="totalHuangFanDisplay">荒番 0</span>
                 </div>
                 <div id="huangFanItems"></div>
+            </div>
+            
+            <!-- 【新增】包三口信息 -->
+            <div class="fan-detail-list" id="sankouDetailList" style="display: none;">
+                <div class="section-header">
+                    <span class="section-title">🎯 包三口</span>
+                </div>
+                <div id="sankouItems"></div>
             </div>
             
             <!-- 积分变化列表 -->
@@ -5916,6 +5949,32 @@
                             if (totalHuangFanDisplayEl) totalHuangFanDisplayEl.textContent = `荒番${roundResult.scoreResult.huangFanCount} (×${roundResult.scoreResult.huangFanMultiplier})`;
                         } else {
                             huangFanDetailListEl.style.display = 'none';
+                        }
+                    }
+                    
+                    // 【新增】显示包三口信息
+                    const sankouDetailListEl = document.getElementById('sankouDetailList');
+                    if (sankouDetailListEl) {
+                        if (roundResult.scoreResult.sankouInfo) {
+                            sankouDetailListEl.style.display = 'block';
+                            const sankouItems = document.getElementById('sankouItems');
+                            if (sankouItems) {
+                                const sankouInfo = roundResult.scoreResult.sankouInfo;
+                                const sankouCount = sankouInfo.sankouCount;
+                                const sankouType = sankouInfo.type === 'zimo' ? '自摸包三口' : '点炮包三口';
+                                const sankouMessage = sankouInfo.message;
+                                sankouItems.innerHTML = `
+                                    <div class="sankou-item">
+                                        <span class="sankou-type">${sankouType}</span>
+                                        <span class="sankou-count">${sankouCount} 口</span>
+                                    </div>
+                                    <div class="sankou-item">
+                                        <span class="sankou-message">${sankouMessage}</span>
+                                    </div>
+                                `;
+                            }
+                        } else {
+                            sankouDetailListEl.style.display = 'none';
                         }
                     }
                 }
