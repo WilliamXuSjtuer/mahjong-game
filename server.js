@@ -695,7 +695,7 @@ class MahjongRoom {
             gangShangPao: false      // 【新增】杠上炮标记（杠牌后补牌再打牌点炮）
         };
         
-        // 发牌：每人13张，庄家14张（花牌自动补花）
+        // 发牌：每人 13 张，庄家 14 张（花牌自动补花）
         this.players.forEach((player, index) => {
             player.hand = [];
             player.melds = [];
@@ -703,6 +703,7 @@ class MahjongRoom {
             player.flowers = [];
             player.isTing = false;
             player.isQiao = false;
+            player.sankouCounts = [0, 0, 0, 0];  // 【新增】每局重置包三口计数器
             
             // 根据庄家位置动态计算风牌（庄家为东，顺时针确定其他风牌）
             player.wind = WINDS[(index - dealerIndex + 4) % 4];
@@ -1026,9 +1027,11 @@ class MahjongRoom {
         while (isFlowerTile(tile)) {
             player.flowers.push(tile);
             
-            // 游戏中广播补花事件
-            if (!isDealingPhase && player.socket) {
-                player.socket.emit('flower_drawn', {
+            // 游戏中广播补花事件给所有玩家
+            if (!isDealingPhase) {
+                this.broadcast('flower_drawn', {
+                    playerIndex: player.seatIndex,
+                    playerId: player.id,
                     flower: tile,
                     flowerName: getFlowerName(tile),
                     totalFlowers: player.flowers.length
@@ -1109,17 +1112,28 @@ class MahjongRoom {
             }
         }
         
-        // 检查暗杠（手中有 3 张相同的牌，摸到第 4 张）
+        // 检查暗杠（手中有 4 张相同的牌）
         const anGangActions = [];
-        // 排除刚摸到的这张牌，统计手中已有的相同牌数量
-        const sameTilesInHand = player.hand.filter(t => 
-            t.type === tile.type && t.value === tile.value && t.id !== tile.id
-        );
-        if (sameTilesInHand.length === 3) {
-            // 手中有 3 张，加上刚摸的这张正好 4 张，可以暗杠
-            anGangActions.push({
-                tile: tile
-            });
+        // 统计手牌中每种牌的数量
+        const tileCounts = {};
+        const tileMap = {};
+        player.hand.forEach(t => {
+            const key = `${t.type}_${t.value}`;
+            tileCounts[key] = (tileCounts[key] || 0) + 1;
+            if (!tileMap[key]) tileMap[key] = [];
+            tileMap[key].push(t);
+        });
+        
+        // 检查是否有 4 张相同的牌可以暗杠
+        for (const key in tileCounts) {
+            if (tileCounts[key] === 4) {
+                // 找到 4 张相同的牌，可以暗杠
+                const tiles = tileMap[key];
+                anGangActions.push({
+                    tile: tiles[3],  // 最后一张作为代表
+                    tiles: tiles     // 保存所有 4 张牌
+                });
+            }
         }
         
         // 如果有暗杠选项且没有自摸，优先提示暗杠
@@ -1128,7 +1142,7 @@ class MahjongRoom {
                 player.socket.emit('action_available', {
                     playerId: player.id,
                     actions: ['an_gang'],
-                    tile: tile,
+                    tile: anGangActions[0].tile,
                     anGangOptions: anGangActions
                 });
             }
@@ -1648,10 +1662,23 @@ class MahjongRoom {
             this.notifyCurrentPlayer();
             
         } else if (action.action === 'an_gang') {
-            // 暗杠：手中有 4 张相同的牌（包含刚摸到的）
-            const sameTiles = player.hand.filter(t => 
-                t.type === tile.type && t.value === tile.value
-            );
+            // 暗杠：手中有 4 张相同的牌
+            let sameTiles = [];
+            
+            // 优先使用 anGangOptions 中的牌（包含所有 4 张）
+            if (action.anGangOptions && action.anGangOptions.length > 0) {
+                const option = action.anGangOptions[0];
+                if (option.tiles && option.tiles.length === 4) {
+                    sameTiles = option.tiles;
+                }
+            }
+            
+            // 如果没有 anGangOptions，则从手牌中查找
+            if (sameTiles.length === 0) {
+                sameTiles = player.hand.filter(t => 
+                    t.type === tile.type && t.value === tile.value
+                );
+            }
             
             // 从手牌中移除这 4 张牌
             sameTiles.forEach(t => {
@@ -2284,8 +2311,8 @@ class MahjongRoom {
             totalFan += 2;
         }
         
-        // 4. 检测碰碰胡（2番）
-        const isPengPengHuFlag = this.isPengPengHu(hand);
+        // 4. 检测碰碰胡（2 番）
+        const isPengPengHuFlag = this.checkPengPengHu(hand, melds);
         if (isPengPengHuFlag) {
             fanList.push({ name: '碰碰胡', fan: 2 });
             totalFan += 2;

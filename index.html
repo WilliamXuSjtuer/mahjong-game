@@ -1179,7 +1179,7 @@
         .emoji-toggle-btn {
             position: fixed;
             bottom: 20px;
-            right: 80px;
+            right: 20px;
             width: 50px;
             height: 50px;
             border-radius: 50%;
@@ -2661,7 +2661,7 @@
             <!-- 玩家区域 -->
             <div class="player-area">
                 <div class="player-info">
-                    <div class="player-avatar current-turn" id="playerAvatar">
+                    <div class="player-avatar" id="playerAvatar">
                         😊
                         <div class="sankou-indicator" id="playerSankou" style="display: none;">3</div>
                     </div>
@@ -3359,6 +3359,8 @@
         // ==================== 音频播放系统 ====================
         const audioCache = {}; // 缓存已加载的音频
         let audioUnlocked = false; // 移动设备音频是否已解锁
+        let flowerVoiceQueue = []; // 补花语音队列
+        let isPlayingFlowerVoice = false; // 是否正在播放补花语音
         
         // 音频格式配置（统一使用mp3）
         const AUDIO_FORMATS = {
@@ -3489,6 +3491,41 @@
             const format = AUDIO_FORMATS[voice] || '.mp3';
             const volume = AUDIO_VOLUMES[voice] || 1.0;
             playAudioFile(`audio/${voice}/actions/${action}${format}`, volume);
+        }
+        
+        // 处理补花语音（队列机制，避免重叠）
+        function playFlowerVoice(tile, voice) {
+            // 将补花语音加入队列
+            flowerVoiceQueue.push({ tile, voice });
+            
+            // 如果当前没有在播放补花语音，立即开始播放
+            if (!isPlayingFlowerVoice) {
+                processFlowerVoiceQueue();
+            }
+        }
+        
+        // 处理补花语音队列
+        function processFlowerVoiceQueue() {
+            if (flowerVoiceQueue.length === 0) {
+                isPlayingFlowerVoice = false;
+                return;
+            }
+            
+            isPlayingFlowerVoice = true;
+            const { tile, voice } = flowerVoiceQueue.shift();
+            
+            // 播放花牌名称语音
+            playTileAudio(tile, voice);
+            
+            // 延迟播放补花语音（等花牌名称语音播放完）
+            setTimeout(() => {
+                playActionAudio('buhua', voice);
+                
+                // 等待补花语音播放完毕（约 1.5 秒）后再处理下一个
+                setTimeout(() => {
+                    processFlowerVoiceQueue();
+                }, 1500);
+            }, 400);
         }
         
         // 音频懒加载队列
@@ -4115,12 +4152,32 @@
             
             // 摸到花牌自动补花
             socket.on('flower_drawn', (data) => {
-                showToast(`🌸 摸到花牌：${data.flowerName}，补花中...`, 2000);
-                playActionAudio('buhua', myVoice); // 播放补花音效
-                playBeep(880, 100); // 播放提示音
+                const playerName = gameState.players[data.playerIndex]?.username || '玩家';
+                const isMe = data.playerIndex === mySeatIndex;
+                
+                // 显示提示
+                if (isMe) {
+                    showToast(`🌸 摸到花牌：${data.flowerName}，补花中...`, 2000);
+                } else {
+                    showToast(`${playerName} 摸到花牌：${data.flowerName}，补花中...`, 2000);
+                }
+                
+                // 根据是否是自己的花牌，选择对应的语音
+                const flowerTile = data.flower;
+                if (isMe) {
+                    // 自己的花牌，使用自己的语音
+                    playFlowerVoice(flowerTile, myVoice);
+                } else {
+                    // 其他玩家的花牌，使用对应玩家的语音
+                    const playerVoice = getPlayerVoiceBySeat(data.playerIndex);
+                    playFlowerVoice(flowerTile, playerVoice);
+                }
+                
+                // 播放提示音
+                playBeep(880, 100);
 
                 // 更新花牌显示
-                const flowerEl = document.getElementById(`flower-${mySeatIndex}`);
+                const flowerEl = document.getElementById(`flower-${data.playerIndex}`);
                 if (flowerEl) {
                     flowerEl.textContent = `🌸${data.totalFlowers}`;
                 }
