@@ -1518,6 +1518,10 @@ class MahjongRoom {
             if (actionType === 'chi' && extraData.selectedChiIndex !== undefined) {
                 pendingAction.selectedChiIndex = extraData.selectedChiIndex;
             }
+            // 如果是暗杠，保存玩家选择的暗杠选项
+            if (actionType === 'an_gang' && extraData.anGangOptions) {
+                pendingAction.anGangOptions = extraData.anGangOptions;
+            }
         } else {
             return { error: '无效的动作' };
         }
@@ -2323,11 +2327,11 @@ class MahjongRoom {
             fanList.push({ name: '清一色', fan: 3 });
             totalFan += 3;
             
-            // 清碰（清一色+碰碰胡）额外+1番
-            if (isPengPengHuFlag) {
-                fanList.push({ name: '清碰', fan: 1 });
-                totalFan += 1;
-            }
+            // // 清碰（清一色+碰碰胡）额外+1番
+            // if (isPengPengHuFlag) {
+            //     fanList.push({ name: '清碰', fan: 1 });
+            //     totalFan += 1;
+            // }
         }
         // 6. 检测混一色（2番）
         else if (this.isHunYiSe(hand, melds)) {
