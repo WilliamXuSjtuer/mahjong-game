@@ -533,6 +533,11 @@
             border-radius: 5px;
         }
 
+        .meld-group .tile.rotated-left { transform: rotate(-90deg); }
+        .meld-group .tile.rotated-center { transform: rotate(0deg); }
+        .meld-group .tile.rotated-right { transform: rotate(90deg); }
+        .meld-group .tile.horizontal { width: var(--tile-height-small); height: var(--tile-width); }
+
         /* 中央出牌区域 - 单人模式四方向弃牌区 */
         .center-area {
             background: rgba(0,0,0,0.15);
@@ -1422,6 +1427,70 @@
             color: var(--gold-light);
             font-weight: bold;
             font-size: 1rem;
+        }
+        
+        .fan-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 0.9rem;
+        }
+        
+        .fan-item .fan-name {
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .fan-item .fan-value {
+            color: var(--gold);
+            font-weight: bold;
+        }
+        
+        /* 苍蝇牌显示 */
+        .cangying-tile-display {
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        /* 荒番信息 */
+        .huangfan-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .huangfan-item .huangfan-value {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        /* 【新增】包三口信息样式 */
+        .sankou-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .sankou-item .sankou-type {
+            color: #f39c12;
+            font-weight: bold;
+        }
+        
+        .sankou-item .sankou-count {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        .sankou-item .sankou-message {
+            width: 100%;
+            color: #fff;
+            margin-top: 4px;
         }
         
         /* 胡牌详情区域 */
@@ -2667,9 +2736,36 @@
             <div class="fan-detail-list" id="huaDetailList">
                 <div class="section-header">
                     <span class="section-title">🌸 花数明细</span>
-                    <span class="section-total" id="totalHuaDisplay">0花</span>
+                    <span class="section-total" id="totalHuaDisplay">0 花</span>
                 </div>
                 <div id="huaItems"></div>
+            </div>
+            
+            <!-- 苍蝇分明细 -->
+            <div class="fan-detail-list" id="cangyingDetailList" style="display: none;">
+                <div class="section-header">
+                    <span class="section-title">🪰 苍蝇分</span>
+                    <span class="section-total" id="totalCangyingDisplay">0 分</span>
+                </div>
+                <div id="cangyingItems"></div>
+                <div class="cangying-tile-display" id="cangyingTileDisplay"></div>
+            </div>
+            
+            <!-- 荒番信息 -->
+            <div class="fan-detail-list" id="huangFanDetailList" style="display: none;">
+                <div class="section-header">
+                    <span class="section-title">🔥 荒番</span>
+                    <span class="section-total" id="totalHuangFanDisplay">荒番 0</span>
+                </div>
+                <div id="huangFanItems"></div>
+            </div>
+            
+            <!-- 【新增】包三口信息 -->
+            <div class="fan-detail-list" id="sankouDetailList" style="display: none;">
+                <div class="section-header">
+                    <span class="section-title">🎯 包三口</span>
+                </div>
+                <div id="sankouItems"></div>
             </div>
             
             <!-- 积分变化列表 -->
@@ -4761,7 +4857,16 @@
                 const opponentMeldsEl = document.getElementById(`${opponentId}Melds`);
                 if (opponentMeldsEl && player.melds) {
                     opponentMeldsEl.innerHTML = player.melds.map(meld => {
-                        const tilesHtml = meld.tiles.map(tile => renderTile(tile, { small: true })).join('');
+                        const direction = getMeldTileDirection(meld, absSeat);
+                        const rotatedIndex = getRotatedTileIndex(meld, absSeat);
+                        const displayTiles = meld.type === 'chi' ? getSortedChiTiles(meld) : meld.tiles;
+                        const tilesHtml = displayTiles.map((tile, index) => {
+                            let tileHtml = renderTile(tile, { small: true });
+                            if (index === rotatedIndex && direction !== 'none') {
+                                tileHtml = tileHtml.replace('class="tile', 'class="tile rotated-' + direction + ' ');
+                            }
+                            return tileHtml;
+                        }).join('');
                         return `<div class="meld-group ${meld.type}">${tilesHtml}</div>`;
                     }).join('');
                 }
@@ -4796,7 +4901,16 @@
             const playerMeldsEl = document.getElementById('playerMelds');
             if (playerMeldsEl && currentMyPlayer?.melds) {
                 playerMeldsEl.innerHTML = currentMyPlayer.melds.map(meld => {
-                    const tilesHtml = meld.tiles.map(tile => renderTile(tile, { small: true })).join('');
+                    const direction = getMeldTileDirection(meld, mySeatIndex);
+                    const rotatedIndex = getRotatedTileIndex(meld, mySeatIndex);
+                    const displayTiles = meld.type === 'chi' ? getSortedChiTiles(meld) : meld.tiles;
+                    const tilesHtml = displayTiles.map((tile, index) => {
+                        let tileHtml = renderTile(tile, { small: true });
+                        if (index === rotatedIndex && direction !== 'none') {
+                            tileHtml = tileHtml.replace('class="tile', 'class="tile rotated-' + direction + ' ');
+                        }
+                        return tileHtml;
+                    }).join('');
                     return `<div class="meld-group ${meld.type}">${tilesHtml}</div>`;
                 }).join('');
             }
@@ -4962,6 +5076,33 @@
         }
 
         // 渲染我的副露
+        function getMeldTileDirection(meld, mySeatIndex) {
+            if (!meld.from && meld.from !== 0) return 'none';
+            if (mySeatIndex === undefined || mySeatIndex === null || mySeatIndex < 0) return 'none';
+            if (meld.type === 'an_gang' || (meld.type === 'gang' && meld.from === mySeatIndex)) return 'none';
+            
+            const fromSeat = meld.from;
+            const diff = (fromSeat - mySeatIndex + 4) % 4;
+            
+            if (diff === 3) return 'left';
+            if (diff === 2) return 'center';
+            if (diff === 1) return 'right';
+            
+            return 'none';
+        }
+
+        function getChiEatenTileIndex(tiles, fromSeat) {
+            if (!tiles || tiles.length !== 3) return -1;
+            const fromSeatWind = ['east', 'south', 'west', 'north'];
+            const fromWind = fromSeatWind[fromSeat];
+            for (let i = 0; i < tiles.length; i++) {
+                if (tiles[i].from === fromWind) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
         function renderMyMelds(melds) {
             const container = document.getElementById('playerMelds');
             if (!container) return;
@@ -4971,11 +5112,45 @@
             melds.forEach(meld => {
                 const group = document.createElement('div');
                 group.className = 'meld-group';
-                meld.tiles.forEach(tile => {
-                    group.appendChild(createTileElement(tile, { small: true }));
+                
+                const direction = getMeldTileDirection(meld, mySeatIndex);
+                const rotatedIndex = getRotatedTileIndex(meld, mySeatIndex);
+                const displayTiles = meld.type === 'chi' ? getSortedChiTiles(meld) : meld.tiles;
+                
+                displayTiles.forEach((tile, index) => {
+                    const tileEl = createTileElement(tile, { small: true });
+                    if (index === rotatedIndex && direction !== 'none') {
+                        tileEl.classList.add('rotated-' + direction);
+                    }
+                    group.appendChild(tileEl);
                 });
                 container.appendChild(group);
             });
+        }
+
+        function getRotatedTileIndex(meld, mySeatIndex) {
+            if (!meld) return -1;
+            const direction = getMeldTileDirection(meld, mySeatIndex);
+            if (direction === 'none') return -1;
+            
+            if (meld.type === 'chi' && meld.tiles && meld.from !== undefined) {
+                return 0;
+            }
+            
+            if (direction === 'left') return 0;
+            if (direction === 'center') return 1;
+            if (direction === 'right') return 2;
+            return -1;
+        }
+
+        function getSortedChiTiles(meld) {
+            if (!meld || meld.type !== 'chi' || !meld.tiles || meld.tiles.length !== 3) {
+                return meld?.tiles || [];
+            }
+            const eatenTile = meld.tiles.find(t => t.from === meld.from);
+            if (!eatenTile) return meld.tiles;
+            const otherTiles = meld.tiles.filter(t => t.from !== meld.from);
+            return [eatenTile, ...otherTiles];
         }
 
         // 更新出牌区
@@ -5011,10 +5186,10 @@
                     zoneLabel.innerHTML = `<span style="color: #e74c3c; font-weight: bold;">🔔 敲牌</span>`;
                 } else if (zoneLabel && displaySeat === 0) {
                     // 恢复默认标签
-                    zoneLabel.textContent = `${player.username} 的出牌`;
+                    zoneLabel.textContent = `${player.username}（${player.windName || ''}）的出牌`;
                 } else if (zoneLabel) {
                     // 显示玩家用户名
-                    zoneLabel.textContent = `${player.username} 的出牌`;
+                    zoneLabel.textContent = `${player.username}（${player.windName || ''}）的出牌`;
                 }
             });
         }
@@ -5594,6 +5769,36 @@
                 if (huaDetailListEl) huaDetailListEl.style.display = 'none';
                 const huDetailListEl = document.getElementById('huDetailList');
                 if (huDetailListEl) huDetailListEl.style.display = 'none';
+                
+                // 流局时显示荒番信息
+                const cangyingDetailListEl = document.getElementById('cangyingDetailList');
+                if (cangyingDetailListEl) cangyingDetailListEl.style.display = 'none';
+                
+                // 显示荒番信息
+                const huangFanDetailListEl = document.getElementById('huangFanDetailList');
+                if (huangFanDetailListEl) {
+                    const huangFanCount = roundResult.huangFanCount || 0;
+                    if (huangFanCount > 0) {
+                        huangFanDetailListEl.style.display = 'block';
+                        const huangFanItems = document.getElementById('huangFanItems');
+                        if (huangFanItems) {
+                            huangFanItems.innerHTML = `
+                                <div class="huangfan-item">
+                                    <span class="fan-name">荒番数</span>
+                                    <span class="huangfan-value">${huangFanCount}</span>
+                                </div>
+                                <div class="huangfan-item">
+                                    <span class="fan-name">说明</span>
+                                    <span class="huangfan-value">下一局胡牌 ×${Math.pow(2, huangFanCount)}倍</span>
+                                </div>
+                            `;
+                        }
+                        const totalHuangFanDisplayEl = document.getElementById('totalHuangFanDisplay');
+                        if (totalHuangFanDisplayEl) totalHuangFanDisplayEl.textContent = `荒番${huangFanCount}`;
+                    } else {
+                        huangFanDetailListEl.style.display = 'none';
+                    }
+                }
             } else {
                 const roundWinnerInfoEl = document.getElementById('roundWinnerInfo');
                 if (roundWinnerInfoEl) roundWinnerInfoEl.style.display = 'block';
@@ -5603,7 +5808,10 @@
                 if (huaDetailListEl) huaDetailListEl.style.display = 'block';
                 
                 const winner = roundResult.players.find(p => p.seatIndex === roundResult.winnerIndex);
-                const winType = roundResult.isZimo === true ? '自摸胡牌！' : '胡牌！';
+                let winType = roundResult.isZimo === true ? '自摸胡牌！' : '胡牌！';
+                if (roundResult.isGangShangPao) {
+                    winType = '杠上炮！';
+                }
                 const winnerNameEl = document.getElementById('winnerName');
                 if (winnerNameEl) winnerNameEl.textContent = winner ? winner.username : '';
                 const winTypeEl = document.getElementById('winType');
@@ -5616,7 +5824,9 @@
                     
                     const huInfoEl = document.getElementById('huInfo');
                     if (huInfoEl) {
-                        if (roundResult.isZimo) {
+                        if (roundResult.isGangShangPao) {
+                            huInfoEl.innerHTML = `<span class="hu-from">${roundResult.loserUsername}</span> 放铳 → <span class="hu-to">${winner ? winner.username : ''}</span> 杠上炮！`;
+                        } else if (roundResult.isZimo) {
                             huInfoEl.innerHTML = `<span class="hu-to">${winner ? winner.username : ''}</span> 自摸胡牌！`;
                         } else if (roundResult.loserUsername) {
                             huInfoEl.innerHTML = `<span class="hu-from">${roundResult.loserUsername}</span> 放铳 → <span class="hu-to">${winner ? winner.username : ''}</span> 胡牌！`;
@@ -5689,6 +5899,84 @@
                     }
                     const totalHuaDisplayEl = document.getElementById('totalHuaDisplay');
                     if (totalHuaDisplayEl) totalHuaDisplayEl.textContent = roundResult.scoreResult.totalHua + '花';
+                    
+                    // 显示苍蝇分
+                    const cangyingDetailListEl = document.getElementById('cangyingDetailList');
+                    if (cangyingDetailListEl) {
+                        if (roundResult.scoreResult.cangyingDetail && roundResult.scoreResult.cangyingDetail.length > 0) {
+                            cangyingDetailListEl.style.display = 'block';
+                            const cangyingItems = document.getElementById('cangyingItems');
+                            if (cangyingItems) {
+                                cangyingItems.innerHTML = '';
+                                roundResult.scoreResult.cangyingDetail.forEach(item => {
+                                    cangyingItems.innerHTML += `<div class="fan-item"><span class="fan-name">${item.name}</span><span class="fan-value">+${item.value}分</span></div>`;
+                                });
+                            }
+                            const totalCangyingDisplayEl = document.getElementById('totalCangyingDisplay');
+                            if (totalCangyingDisplayEl) totalCangyingDisplayEl.textContent = roundResult.scoreResult.cangyingScore + '分';
+                            
+                            // 显示苍蝇牌
+                            if (roundResult.cangyingTile) {
+                                const cangyingTileDisplayEl = document.getElementById('cangyingTileDisplay');
+                                if (cangyingTileDisplayEl) {
+                                    cangyingTileDisplayEl.innerHTML = renderTile(roundResult.cangyingTile, { small: true });
+                                }
+                            }
+                        } else {
+                            cangyingDetailListEl.style.display = 'none';
+                        }
+                    }
+                    
+                    // 显示荒番信息
+                    const huangFanDetailListEl = document.getElementById('huangFanDetailList');
+                    if (huangFanDetailListEl) {
+                        if (roundResult.scoreResult.isHuangFanRound && roundResult.scoreResult.huangFanCount > 0) {
+                            huangFanDetailListEl.style.display = 'block';
+                            const huangFanItems = document.getElementById('huangFanItems');
+                            if (huangFanItems) {
+                                huangFanItems.innerHTML = `
+                                    <div class="huangfan-item">
+                                        <span class="fan-name">荒番数</span>
+                                        <span class="huangfan-value">${roundResult.scoreResult.huangFanCount}</span>
+                                    </div>
+                                    <div class="huangfan-item">
+                                        <span class="fan-name">翻倍倍数</span>
+                                        <span class="huangfan-value">×${roundResult.scoreResult.huangFanMultiplier}</span>
+                                    </div>
+                                `;
+                            }
+                            const totalHuangFanDisplayEl = document.getElementById('totalHuangFanDisplay');
+                            if (totalHuangFanDisplayEl) totalHuangFanDisplayEl.textContent = `荒番${roundResult.scoreResult.huangFanCount} (×${roundResult.scoreResult.huangFanMultiplier})`;
+                        } else {
+                            huangFanDetailListEl.style.display = 'none';
+                        }
+                    }
+                    
+                    // 【新增】显示包三口信息
+                    const sankouDetailListEl = document.getElementById('sankouDetailList');
+                    if (sankouDetailListEl) {
+                        if (roundResult.scoreResult.sankouInfo) {
+                            sankouDetailListEl.style.display = 'block';
+                            const sankouItems = document.getElementById('sankouItems');
+                            if (sankouItems) {
+                                const sankouInfo = roundResult.scoreResult.sankouInfo;
+                                const sankouCount = sankouInfo.sankouCount;
+                                const sankouType = sankouInfo.type === 'zimo' ? '自摸包三口' : '点炮包三口';
+                                const sankouMessage = sankouInfo.message;
+                                sankouItems.innerHTML = `
+                                    <div class="sankou-item">
+                                        <span class="sankou-type">${sankouType}</span>
+                                        <span class="sankou-count">${sankouCount} 口</span>
+                                    </div>
+                                    <div class="sankou-item">
+                                        <span class="sankou-message">${sankouMessage}</span>
+                                    </div>
+                                `;
+                            }
+                        } else {
+                            sankouDetailListEl.style.display = 'none';
+                        }
+                    }
                 }
             }
             
