@@ -1697,6 +1697,100 @@
             background: rgba(46,204,113,0.2);
             color: #2ecc71;
         }
+        
+        /* 牌谱编辑器样式 */
+        .deck-editor-container {
+            margin: 15px 0;
+            padding: 15px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            border: 1px solid rgba(255,215,0,0.3);
+        }
+        
+        .deck-editor-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .deck-editor-header h3 {
+            margin: 0;
+            color: var(--gold);
+            font-size: 1.1rem;
+        }
+        
+        .deck-editor-hint {
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.5);
+        }
+        
+        .deck-editor-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .deck-editor-actions .btn.small {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+        
+        .deck-editor-actions .btn.primary {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+        
+        .deck-editor-scroll {
+            max-height: 200px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            border-radius: 8px;
+            background: rgba(0,0,0,0.2);
+        }
+        
+        .deck-tiles-list {
+            display: flex;
+            flex-wrap: wrap;
+            padding: 10px;
+            gap: 4px;
+            min-height: 60px;
+        }
+        
+        .deck-tile-item {
+            width: 32px;
+            height: 44px;
+            background-color: #f5f0e1;
+            background-image: url('/img/majiang.png');
+            background-repeat: no-repeat;
+            border: 1px solid var(--tile-border);
+            border-radius: 4px;
+            cursor: grab;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+            transition: transform 0.15s, box-shadow 0.15s;
+            user-select: none;
+            position: relative;
+        }
+        
+        .deck-tile-item.loading {
+            background-image: none;
+        }
+        
+        .deck-tile-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 2px 4px 8px rgba(0,0,0,0.3);
+        }
+        
+        .deck-tile-item.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+        
+        .deck-tile-item.drag-over {
+            border: 2px dashed var(--gold);
+            background-color: rgba(255,215,0,0.3);
+        }
 
         /* 最终结算弹窗 */
         .match-result-modal {
@@ -2489,7 +2583,7 @@
             
             <div class="input-group">
                 <label><i class="fas fa-door-open"></i> 加入房间</label>
-                <input type="text" id="roomCodeInput" placeholder="输入房间码（4位字母）">
+                <input type="text" id="roomCodeInput" placeholder="输入房间码（6位）或TEST">
             </div>
             
             <button class="btn secondary" onclick="joinRoom()">
@@ -2514,6 +2608,25 @@
         
         <div class="room-container">
             <div class="players-grid" id="playersGrid"></div>
+            
+            <!-- 牌谱编辑器（仅测试房间显示） -->
+            <div class="deck-editor-container" id="deckEditorContainer" style="display: none;">
+                <div class="deck-editor-header">
+                    <h3>🀄 自定义牌谱</h3>
+                    <span class="deck-editor-hint">拖动牌来改变顺序（牌堆顶部在左边）</span>
+                </div>
+                <div class="deck-editor-actions">
+                    <button class="btn small" onclick="resetDeckOrder()">
+                        <i class="fas fa-undo"></i> 重置默认
+                    </button>
+                    <button class="btn small primary" onclick="saveCustomDeck()">
+                        <i class="fas fa-save"></i> 保存牌谱
+                    </button>
+                </div>
+                <div class="deck-editor-scroll">
+                    <div class="deck-tiles-list" id="deckTilesList"></div>
+                </div>
+            </div>
             
             <div id="viewersList"></div>
             
@@ -2703,8 +2816,8 @@
 
     <!-- 操作提示（碰杠胡吃加杠暗杠） -->
     <div class="action-hints" id="actionHints" style="display: none;">
-        <button class="hint-btn" id="anGangBtn" onclick="doAction('an_gang')" style="display: none; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">暗杠</button>
-        <button class="hint-btn" id="jiaGangBtn" onclick="doAction('jia_gang')" style="display: none; background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);">加杠</button>
+        <button class="hint-btn" id="anGangBtn" onclick="handleAnGangClick()" style="display: none; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">暗杠</button>
+        <button class="hint-btn" id="jiaGangBtn" onclick="handleJiaGangClick()" style="display: none; background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);">加杠</button>
         <button class="hint-btn" id="pengBtn" onclick="doAction('peng')" style="display: none; background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);">碰</button>
         <button class="hint-btn" id="gangBtn" onclick="doAction('gang')" style="display: none; background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);">杠</button>
         <button class="hint-btn" id="huBtn2" onclick="doAction('hu')" style="display: none; background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);">胡</button>
@@ -3945,15 +4058,27 @@
             // 房间事件
             socket.on('room_created', (data) => {
                 currentRoom = data.roomCode;
+                isTestRoom = data.isTestRoom || false;
                 showRoomScreen();
             });
 
             socket.on('room_joined', (data) => {
                 console.log('收到 room_joined 事件，roomCode:', data.roomCode);
                 currentRoom = data.roomCode;
+                isTestRoom = data.isTestRoom || false;
                 sessionStorage.setItem('mahjong_room_code', data.roomCode);
                 sessionStorage.setItem('mahjong_username', username);
                 showRoomScreen();
+            });
+            
+            // 自定义牌谱保存成功
+            socket.on('custom_deck_saved', (data) => {
+                showToast('✅ ' + data.message);
+            });
+            
+            // 自定义牌谱保存失败
+            socket.on('custom_deck_error', (data) => {
+                showToast('❌ ' + data.message, 'error');
             });
 
             socket.on('join_error', (data) => {
@@ -4637,8 +4762,9 @@
             
             console.log('加入房间:', roomCode, '用户名:', username);
             
-            if (roomCode.length !== 6) {
-                showToast('请输入6位房间号');
+            // TEST房间特殊处理，其他房间需要6位
+            if (roomCode !== 'TEST' && roomCode.length !== 6) {
+                showToast('请输入6位房间号，或输入TEST进入测试房间');
                 return;
             }
             
@@ -4652,6 +4778,13 @@
             document.getElementById('lobbyScreen').classList.remove('active');
             document.getElementById('roomScreen').classList.add('active');
             document.getElementById('roomCodeDisplay').textContent = currentRoom;
+            
+            // 测试房间显示牌谱编辑器
+            if (isTestRoom) {
+                showDeckEditor();
+            } else {
+                hideDeckEditor();
+            }
         }
 
         // 更新房间UI
@@ -4741,12 +4874,194 @@
             btn.innerHTML = isReady ? '<i class="fas fa-times"></i> 取消准备' : '<i class="fas fa-check"></i> 准备';
             btn.classList.toggle('secondary', isReady);
         }
+        
+        // ========== 牌谱编辑器功能 ==========
+        let currentDeckOrder = [];
+        let isTestRoom = false;
+        let draggedTileIndex = null;
+        
+        const DECK_TILE_TYPES = ['wan', 'tiao', 'tong'];
+        const DECK_TILE_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+        const DECK_WINDS = ['dong', 'nan', 'xi', 'bei'];
+        const DECK_HONORS = ['zhong', 'fa', 'bai'];
+        const DECK_FLOWERS = ['chun', 'xia', 'qiu', 'dong_hua', 'mei', 'lan', 'zhu', 'ju'];
+        
+        const TILE_DISPLAY = {
+            wan: { 1: '一万', 2: '二万', 3: '三万', 4: '四万', 5: '五万', 6: '六万', 7: '七万', 8: '八万', 9: '九万' },
+            tiao: { 1: '一条', 2: '二条', 3: '三条', 4: '四条', 5: '五条', 6: '六条', 7: '七条', 8: '八条', 9: '九条' },
+            tong: { 1: '一筒', 2: '二筒', 3: '三筒', 4: '四筒', 5: '五筒', 6: '六筒', 7: '七筒', 8: '八筒', 9: '九筒' },
+            wind: { dong: '东', nan: '南', xi: '西', bei: '北' },
+            honor: { zhong: '中', fa: '发', bai: '白' },
+            flower: { chun: '春', xia: '夏', qiu: '秋', dong_hua: '冬', mei: '梅', lan: '兰', zhu: '竹', ju: '菊' }
+        };
+        
+        function initDefaultDeckOrder() {
+            const deck = [];
+            
+            for (const value of DECK_TILE_VALUES) {
+                for (let i = 0; i < 4; i++) {
+                    deck.push({ type: 'wan', value, id: `wan_${value}_${i}` });
+                }
+            }
+            
+            for (const value of DECK_TILE_VALUES) {
+                for (let i = 0; i < 4; i++) {
+                    deck.push({ type: 'tiao', value, id: `tiao_${value}_${i}` });
+                }
+            }
+            
+            for (const value of DECK_TILE_VALUES) {
+                for (let i = 0; i < 4; i++) {
+                    deck.push({ type: 'tong', value, id: `tong_${value}_${i}` });
+                }
+            }
+            
+            for (const honor of DECK_HONORS) {
+                for (let i = 0; i < 4; i++) {
+                    deck.push({ type: 'honor', value: honor, id: `honor_${honor}_${i}` });
+                }
+            }
+            
+            for (const wind of DECK_WINDS) {
+                for (let i = 0; i < 4; i++) {
+                    deck.push({ type: 'wind', value: wind, id: `wind_${wind}_${i}` });
+                }
+            }
+            
+            for (const flower of DECK_FLOWERS) {
+                deck.push({ type: 'flower', value: flower, id: `flower_${flower}` });
+            }
+            
+            return deck;
+        }
+        
+        function getTileDisplayText(tile) {
+            if (TILE_DISPLAY[tile.type] && TILE_DISPLAY[tile.type][tile.value]) {
+                return TILE_DISPLAY[tile.type][tile.value];
+            }
+            return tile.value;
+        }
+        
+        function getTileClass(tile) {
+            return `tile-${tile.type}`;
+        }
+        
+        function renderDeckEditor() {
+            const container = document.getElementById('deckTilesList');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            currentDeckOrder.forEach((tile, index) => {
+                const tileEl = document.createElement('div');
+                tileEl.className = 'deck-tile-item';
+                tileEl.draggable = true;
+                tileEl.dataset.index = index;
+                
+                // 使用精灵图显示
+                const spritePos = getSpritePosition(tile);
+                if (spritePos && spriteLoaded) {
+                    tileEl.style.cssText = spritePos;
+                } else if (spritePos) {
+                    tileEl.dataset.spriteStyle = spritePos;
+                    tileEl.classList.add('loading');
+                }
+                
+                // 添加文字备用显示
+                const displayText = getTileDisplayText(tile);
+                tileEl.title = displayText;
+                
+                tileEl.addEventListener('dragstart', handleDragStart);
+                tileEl.addEventListener('dragend', handleDragEnd);
+                tileEl.addEventListener('dragover', handleDragOver);
+                tileEl.addEventListener('dragleave', handleDragLeave);
+                tileEl.addEventListener('drop', handleDrop);
+                
+                container.appendChild(tileEl);
+            });
+        }
+        
+        function handleDragStart(e) {
+            draggedTileIndex = parseInt(e.target.dataset.index);
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+        
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.deck-tile-item').forEach(el => {
+                el.classList.remove('drag-over');
+            });
+        }
+        
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            e.target.classList.add('drag-over');
+        }
+        
+        function handleDragLeave(e) {
+            e.target.classList.remove('drag-over');
+        }
+        
+        function handleDrop(e) {
+            e.preventDefault();
+            e.target.classList.remove('drag-over');
+            
+            const targetIndex = parseInt(e.target.dataset.index);
+            
+            if (draggedTileIndex !== null && targetIndex !== draggedTileIndex) {
+                const draggedTile = currentDeckOrder[draggedTileIndex];
+                currentDeckOrder.splice(draggedTileIndex, 1);
+                currentDeckOrder.splice(targetIndex, 0, draggedTile);
+                renderDeckEditor();
+            }
+            
+            draggedTileIndex = null;
+        }
+        
+        function resetDeckOrder() {
+            currentDeckOrder = initDefaultDeckOrder();
+            renderDeckEditor();
+            showToast('牌谱已重置为默认顺序');
+        }
+        
+        function saveCustomDeck() {
+            if (!socket || !isTestRoom) {
+                showToast('只能在测试房间保存牌谱', 'error');
+                return;
+            }
+            
+            socket.emit('set_custom_deck', { deckOrder: currentDeckOrder });
+        }
+        
+        function showDeckEditor() {
+            const container = document.getElementById('deckEditorContainer');
+            if (container) {
+                container.style.display = 'block';
+                if (currentDeckOrder.length === 0) {
+                    currentDeckOrder = initDefaultDeckOrder();
+                }
+                renderDeckEditor();
+            }
+        }
+        
+        function hideDeckEditor() {
+            const container = document.getElementById('deckEditorContainer');
+            if (container) {
+                container.style.display = 'none';
+            }
+        }
+        // ========== 牌谱编辑器功能结束 ==========
 
         // 离开房间
         function leaveRoom() {
             socket.emit('leave_room');
             currentRoom = null;
             isReady = false;
+            isTestRoom = false;
+            currentDeckOrder = [];
+            hideDeckEditor();
             sessionStorage.removeItem('mahjong_room_code');
             sessionStorage.removeItem('mahjong_username');
             document.getElementById('roomScreen').classList.remove('active');
@@ -4961,13 +5276,24 @@
                         const direction = getMeldTileDirection(meld, absSeat);
                         const rotatedIndex = getRotatedTileIndex(meld, absSeat);
                         const displayTiles = meld.type === 'chi' ? getSortedChiTiles(meld) : meld.tiles;
-                        const tilesHtml = displayTiles.map((tile, index) => {
-                            let tileHtml = renderTile(tile, { small: true });
-                            if (index === rotatedIndex && direction !== 'none') {
-                                tileHtml = tileHtml.replace('class="tile', 'class="tile rotated-' + direction + ' ');
-                            }
-                            return tileHtml;
-                        }).join('');
+                        
+                        const isAnGang = meld.type === 'gang' && meld.from === absSeat;
+                        
+                        let tilesHtml;
+                        if (isAnGang && displayTiles.length === 4) {
+                            tilesHtml = renderTile(displayTiles[0], { small: true, back: true }) +
+                                        renderTile(displayTiles[1], { small: true }) +
+                                        renderTile(displayTiles[2], { small: true }) +
+                                        renderTile(displayTiles[3], { small: true, back: true });
+                        } else {
+                            tilesHtml = displayTiles.map((tile, index) => {
+                                let tileHtml = renderTile(tile, { small: true });
+                                if (index === rotatedIndex && direction !== 'none') {
+                                    tileHtml = tileHtml.replace('class="tile', 'class="tile rotated-' + direction + ' ');
+                                }
+                                return tileHtml;
+                            }).join('');
+                        }
                         return `<div class="meld-group ${meld.type}">${tilesHtml}</div>`;
                     }).join('');
                 }
@@ -5005,13 +5331,24 @@
                     const direction = getMeldTileDirection(meld, mySeatIndex);
                     const rotatedIndex = getRotatedTileIndex(meld, mySeatIndex);
                     const displayTiles = meld.type === 'chi' ? getSortedChiTiles(meld) : meld.tiles;
-                    const tilesHtml = displayTiles.map((tile, index) => {
-                        let tileHtml = renderTile(tile, { small: true });
-                        if (index === rotatedIndex && direction !== 'none') {
-                            tileHtml = tileHtml.replace('class="tile', 'class="tile rotated-' + direction + ' ');
-                        }
-                        return tileHtml;
-                    }).join('');
+                    
+                    const isAnGang = meld.type === 'gang' && meld.from === mySeatIndex;
+                    
+                    let tilesHtml;
+                    if (isAnGang && displayTiles.length === 4) {
+                        tilesHtml = renderTile(displayTiles[0], { small: true, back: true }) +
+                                    renderTile(displayTiles[1], { small: true }) +
+                                    renderTile(displayTiles[2], { small: true }) +
+                                    renderTile(displayTiles[3], { small: true, back: true });
+                    } else {
+                        tilesHtml = displayTiles.map((tile, index) => {
+                            let tileHtml = renderTile(tile, { small: true });
+                            if (index === rotatedIndex && direction !== 'none') {
+                                tileHtml = tileHtml.replace('class="tile', 'class="tile rotated-' + direction + ' ');
+                            }
+                            return tileHtml;
+                        }).join('');
+                    }
                     return `<div class="meld-group ${meld.type}">${tilesHtml}</div>`;
                 }).join('');
             }
@@ -5143,13 +5480,19 @@
 
         // 创建麻将牌元素
         function createTileElement(tile, options = {}) {
-            const { small = false, isNew = false, discarded = false } = options;
+            const { small = false, isNew = false, discarded = false, back = false } = options;
             const el = document.createElement('div');
             
             let classes = ['tile', tile.type];
             if (small) classes.push('small');
             if (discarded) classes.push('discarded');
             if (isNew) classes.push('new-tile');
+            if (back) classes.push('back');
+            
+            if (back) {
+                el.className = classes.join(' ');
+                return el;
+            }
             
             // 精灵图未加载完成时使用文字模式显示
             if (!spriteLoaded) {
@@ -5221,13 +5564,26 @@
                 const rotatedIndex = getRotatedTileIndex(meld, mySeatIndex);
                 const displayTiles = meld.type === 'chi' ? getSortedChiTiles(meld) : meld.tiles;
                 
-                displayTiles.forEach((tile, index) => {
-                    const tileEl = createTileElement(tile, { small: true });
-                    if (index === rotatedIndex && direction !== 'none') {
-                        tileEl.classList.add('rotated-' + direction);
-                    }
-                    group.appendChild(tileEl);
-                });
+                const isAnGang = meld.type === 'gang' && meld.from === mySeatIndex;
+                
+                if (isAnGang && displayTiles.length === 4) {
+                    const backTile1 = createTileElement(displayTiles[0], { small: true, back: true });
+                    const tile1 = createTileElement(displayTiles[1], { small: true });
+                    const tile2 = createTileElement(displayTiles[2], { small: true });
+                    const backTile2 = createTileElement(displayTiles[3], { small: true, back: true });
+                    group.appendChild(backTile1);
+                    group.appendChild(tile1);
+                    group.appendChild(tile2);
+                    group.appendChild(backTile2);
+                } else {
+                    displayTiles.forEach((tile, index) => {
+                        const tileEl = createTileElement(tile, { small: true });
+                        if (index === rotatedIndex && direction !== 'none') {
+                            tileEl.classList.add('rotated-' + direction);
+                        }
+                        group.appendChild(tileEl);
+                    });
+                }
                 container.appendChild(group);
             });
         }
@@ -5505,34 +5861,22 @@
             
             console.log('执行动作:', action);
             
-            // 如果是加杠，传递加杠选项信息
+            // 暗杠和加杠由专门函数处理
             if (action === 'jia_gang') {
-                const actionData = { action };
-                if (window.currentJiaGangOptions && window.currentJiaGangOptions.length > 0) {
-                    if (window.currentJiaGangOptions.length === 1) {
-                        actionData.selectedMeldIndex = window.currentJiaGangOptions[0].meldIndex;
-                    } else {
-                        // 多个加杠选项时，默认选择第一个（后续可以添加选择 UI）
-                        actionData.selectedMeldIndex = window.currentJiaGangOptions[0].meldIndex;
-                    }
-                }
-                socket.emit('player_action', actionData);
+                handleJiaGangClick();
+                return;
             } 
-            // 如果是暗杠，传递暗杠选项信息
-            else if (action === 'an_gang') {
-                const actionData = { action };
-                if (window.currentAnGangOptions && window.currentAnGangOptions.length > 0) {
-                    actionData.anGangOptions = window.currentAnGangOptions;
-                }
-                socket.emit('player_action', actionData);
-            } else {
-                socket.emit('player_action', { action });
+            if (action === 'an_gang') {
+                handleAnGangClick();
+                return;
             }
+            
+            socket.emit('player_action', { action });
             
             hideResponseButtons();
             
             // 显示动作特效（只在本地显示，不重复播放音频）
-            if (action === 'peng' || action === 'gang' || action === 'hu' || action === 'hu_zimo' || action === 'jia_gang' || action === 'an_gang') {
+            if (action === 'peng' || action === 'gang' || action === 'hu' || action === 'hu_zimo') {
                 showActionEffect(action);
             }
         }
@@ -5557,6 +5901,270 @@
             } else {
                 showChiSelectionModal(chiOptions);
             }
+        }
+        
+        // 处理暗杠点击（有多组暗杠时显示选择）
+        function handleAnGangClick() {
+            const anGangOptions = window.currentAnGangOptions;
+            
+            if (!anGangOptions || anGangOptions.length === 0) {
+                return;
+            }
+            
+            if (anGangOptions.length === 1) {
+                socket.emit('player_action', {
+                    action: 'an_gang',
+                    anGangOptions: anGangOptions
+                });
+                hideResponseButtons();
+                showActionEffect('an_gang');
+                const myVoice = getPlayerVoiceBySeat(mySeatIndex);
+                playActionAudio('gang', myVoice);
+            } else {
+                showAnGangSelectionModal(anGangOptions);
+            }
+        }
+        
+        // 显示暗杠选择弹窗
+        function showAnGangSelectionModal(anGangOptions) {
+            const modal = document.createElement('div');
+            modal.id = 'anGangModal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                border-radius: 15px;
+                padding: 20px;
+                max-width: 500px;
+                width: 90%;
+                border: 2px solid #e74c3c;
+                box-shadow: 0 0 30px rgba(231, 76, 60, 0.3);
+            `;
+            
+            const title = document.createElement('h2');
+            title.textContent = '🎯 选择暗杠牌组';
+            title.style.cssText = `
+                text-align: center;
+                color: #e74c3c;
+                margin: 0 0 20px 0;
+                font-size: 24px;
+            `;
+            content.appendChild(title);
+            
+            const optionsContainer = document.createElement('div');
+            optionsContainer.style.cssText = `
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            `;
+            
+            anGangOptions.forEach((option, index) => {
+                const optionBtn = document.createElement('button');
+                optionBtn.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 5px;
+                    padding: 15px;
+                    background: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 10px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                `;
+                
+                option.tiles.forEach(tile => {
+                    const tileEl = createSmallTileElement(tile);
+                    optionBtn.appendChild(tileEl);
+                });
+                
+                optionBtn.onmouseenter = () => {
+                    optionBtn.style.background = 'rgba(231, 76, 60, 0.3)';
+                    optionBtn.style.borderColor = '#e74c3c';
+                };
+                optionBtn.onmouseleave = () => {
+                    optionBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+                    optionBtn.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                };
+                
+                optionBtn.onclick = () => {
+                    socket.emit('player_action', {
+                        action: 'an_gang',
+                        anGangOptions: [option]
+                    });
+                    document.body.removeChild(modal);
+                    hideResponseButtons();
+                    showActionEffect('an_gang');
+                    const myVoice = getPlayerVoiceBySeat(mySeatIndex);
+                    playActionAudio('gang', myVoice);
+                };
+                
+                optionsContainer.appendChild(optionBtn);
+            });
+            
+            content.appendChild(optionsContainer);
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            };
+        }
+        
+        // 处理加杠点击（有多组加杠时显示选择）
+        function handleJiaGangClick() {
+            const jiaGangOptions = window.currentJiaGangOptions;
+            
+            if (!jiaGangOptions || jiaGangOptions.length === 0) {
+                return;
+            }
+            
+            if (jiaGangOptions.length === 1) {
+                socket.emit('player_action', {
+                    action: 'jia_gang',
+                    jiaGangOptions: jiaGangOptions
+                });
+                hideResponseButtons();
+                showActionEffect('jia_gang');
+                const myVoice = getPlayerVoiceBySeat(mySeatIndex);
+                playActionAudio('gang', myVoice);
+            } else {
+                showJiaGangSelectionModal(jiaGangOptions);
+            }
+        }
+        
+        // 显示加杠选择弹窗
+        function showJiaGangSelectionModal(jiaGangOptions) {
+            const modal = document.createElement('div');
+            modal.id = 'jiaGangModal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                border-radius: 15px;
+                padding: 20px;
+                max-width: 500px;
+                width: 90%;
+                border: 2px solid #3498db;
+                box-shadow: 0 0 30px rgba(52, 152, 219, 0.3);
+            `;
+            
+            const title = document.createElement('h2');
+            title.textContent = '🎯 选择加杠牌';
+            title.style.cssText = `
+                text-align: center;
+                color: #3498db;
+                margin: 0 0 20px 0;
+                font-size: 24px;
+            `;
+            content.appendChild(title);
+            
+            const optionsContainer = document.createElement('div');
+            optionsContainer.style.cssText = `
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            `;
+            
+            jiaGangOptions.forEach((option, index) => {
+                const optionBtn = document.createElement('button');
+                optionBtn.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 5px;
+                    padding: 15px;
+                    background: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 10px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                `;
+                
+                const tileEl = createSmallTileElement(option.tile);
+                optionBtn.appendChild(tileEl);
+                
+                optionBtn.onmouseenter = () => {
+                    optionBtn.style.background = 'rgba(52, 152, 219, 0.3)';
+                    optionBtn.style.borderColor = '#3498db';
+                };
+                optionBtn.onmouseleave = () => {
+                    optionBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+                    optionBtn.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                };
+                
+                optionBtn.onclick = () => {
+                    socket.emit('player_action', {
+                        action: 'jia_gang',
+                        jiaGangOptions: [option]
+                    });
+                    document.body.removeChild(modal);
+                    hideResponseButtons();
+                    showActionEffect('jia_gang');
+                    const myVoice = getPlayerVoiceBySeat(mySeatIndex);
+                    playActionAudio('gang', myVoice);
+                };
+                
+                optionsContainer.appendChild(optionBtn);
+            });
+            
+            content.appendChild(optionsContainer);
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            };
+        }
+        
+        // 创建小型牌元素
+        function createSmallTileElement(tile) {
+            const tileEl = document.createElement('div');
+            tileEl.className = 'tile small';
+            tileEl.style.cssText = `
+                width: 32px;
+                height: 45px;
+                background-color: #f5f0e1;
+                background-image: url('/img/majiang.png');
+                background-repeat: no-repeat;
+                border: 1px solid #8b7355;
+                border-radius: 4px;
+            `;
+            
+            const spritePos = getSpritePosition(tile, true);
+            if (spritePos && spriteLoaded) {
+                tileEl.style.cssText += spritePos;
+            }
+            
+            return tileEl;
         }
         
         // 显示吃牌选择弹窗
@@ -5958,6 +6566,13 @@
                         if (roundResult.winnerMelds && roundResult.winnerMelds.length > 0) {
                             meldSectionEl.style.display = 'block';
                             winnerMeldsEl.innerHTML = roundResult.winnerMelds.map(meld => {
+                                const isAnGang = meld.type === 'gang' && meld.from === roundResult.winnerIndex;
+                                if (isAnGang && meld.tiles && meld.tiles.length === 4) {
+                                    return renderTile(meld.tiles[0], { small: true, back: true }) +
+                                           renderTile(meld.tiles[1], { small: true }) +
+                                           renderTile(meld.tiles[2], { small: true }) +
+                                           renderTile(meld.tiles[3], { small: true, back: true });
+                                }
                                 return meld.tiles.map(tile => renderTile(tile, { small: true })).join('');
                             }).join(' ');
                         } else {
