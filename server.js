@@ -1454,7 +1454,19 @@ class MahjongRoom {
             // 检查胡牌（只有敲牌后才能胡牌）
             const testHand = [...player.hand, tile];
             if (player.isQiao && this.canHu(testHand, player.melds)) {
-                actions.push('hu');
+                // 创建临时玩家对象来检查是否可以捉铳胡
+                const tempPlayer = {
+                    ...player,
+                    hand: testHand
+                };
+                
+                // 检查是否可以捉铳胡
+                if (this.canDianpaoHu(tempPlayer)) {
+                    actions.push('hu');
+                } else {
+                    // 花数不足，只能自摸，不能捉铳
+                    console.log(`玩家 ${player.username} 花数不足，只能自摸胡，不能捉铳胡`);
+                }
             }
             
             // 检查杠（有3张相同的牌）
@@ -2831,6 +2843,32 @@ class MahjongRoom {
         return { fanList, totalFan };
     }
     
+    // 检查是否有特殊牌型
+    hasSpecialFan(fanResult) {
+        if (!fanResult || !fanResult.fanList) return false;
+        return fanResult.fanList.some(f => 
+            ['门清', '混一色', '清一色', '七对子', '大单吊', '碰碰胡'].includes(f.name)
+        );
+    }
+    
+    // 检查是否可以捉铳胡（点炮胡）
+    canDianpaoHu(player) {
+        // 计算番型
+        const fanResult = this.calculateFan(player, false, false);
+        
+        // 有特殊牌型时，任意数量花都可以捉铳胡
+        if (this.hasSpecialFan(fanResult)) {
+            return true;
+        }
+        
+        // 没有特殊牌型时，检查花数（不包括底花）
+        const huaResult = this.calculateHua(player);
+        const huaWithoutBase = huaResult.totalHua - 1; // 减去底花
+        
+        // 花数 >= 3 可以捉铳胡，花数 <= 2 只能自摸
+        return huaWithoutBase >= 3;
+    }
+    
     // 检测大单吊
     isDaDanDiao(hand, melds) {
         // 大单吊：胡牌时，手牌只剩 2 张（一对将），其余都是副露
@@ -2936,7 +2974,7 @@ class MahjongRoom {
             }
         }
         
-        // 检查手牌中的暗刻（3张相同的牌）
+        // 检查手牌中的暗刻（3张相同的风、箭牌）
         if (player.hand) {
             const tileCounts = {};
             for (const tile of player.hand) {
@@ -2954,11 +2992,17 @@ class MahjongRoom {
             }
         }
         
+        // 检查无花果：只有底花1花，没有其他花
+        if (totalHua === 1 && huaList.length === 1 && huaList[0].name === '底花') {
+            huaList = [{ name: '无花果', hua: 10 }];
+            totalHua = 10;
+        }
+        
         return { huaList, totalHua };
     }
     
     // 计算苍蝇分
-    calculateCangying(player, cangyingTile, fanResult = null) {
+    calculateCangying(player, cangyingTile, fanResult = null, huaResult = null) {
         const cangyingList = [];
         let totalCangying = 0;
         
@@ -2971,17 +3015,25 @@ class MahjongRoom {
             fanResult = this.calculateFan(player, false, false);
         }
         
+        // 如果没有传入花数结果，则重新计算
+        if (!huaResult) {
+            huaResult = this.calculateHua(player);
+        }
+        
         // 调试日志
         console.log(`[DEBUG] calculateCangying - fanResult:`, JSON.stringify(fanResult));
         
-        // 检查是否有资格飞苍蝇（有牌型：门清、混一色、清一色、七对、大单吊、碰碰胡）
+        // 检查是否有资格飞苍蝇（有牌型：门清、混一色、清一色、七对、大单吊、碰碰胡，或无花果）
         const hasQualifyingFan = fanResult.fanList.some(f => 
             ['门清', '混一色', '清一色', '七对子', '大单吊', '碰碰胡'].includes(f.name)
         );
         
-        console.log(`[DEBUG] calculateCangying - hasQualifyingFan:`, hasQualifyingFan);
+        // 检查是否是无花果
+        const hasWuhuaguo = huaResult.huaList.some(h => h.name === '无花果');
         
-        if (!hasQualifyingFan) {
+        console.log(`[DEBUG] calculateCangying - hasQualifyingFan:`, hasQualifyingFan, `hasWuhuaguo:`, hasWuhuaguo);
+        
+        if (!hasQualifyingFan && !hasWuhuaguo) {
             console.log(`[DEBUG] calculateCangying - 没有资格飞苍蝇，返回0分`);
             return { cangyingList, totalCangying };
         }
@@ -3025,7 +3077,7 @@ class MahjongRoom {
     
     // 计算本局得分
     calculateScore(winner, loserIndex, fanResult, huaResult, cangyingResult, isZimo, isHuangFanRound = false, huangFanCount = 0, isGangShangPao = false) {
-        const MAX_SCORE = 50; // 封顶 50 分
+        const MAX_SCORE = 150; // 封顶 150 分
         
         // 分数 = (花数 × 2^番数) + 苍蝇分
         const baseScore = huaResult.totalHua * Math.pow(2, fanResult.totalFan);
@@ -3177,7 +3229,7 @@ class MahjongRoom {
             
             const fanResult = this.calculateFan(winner, isZimo, isGangKai);
             const huaResult = this.calculateHua(winner);
-            const cangyingResult = this.calculateCangying(winner, this.gameState.cangyingTile, fanResult);
+            const cangyingResult = this.calculateCangying(winner, this.gameState.cangyingTile, fanResult, huaResult);
             console.log(`[DEBUG] cangyingResult:`, JSON.stringify(cangyingResult));
             const scoreResult = this.calculateScore(winner, loserIndex, fanResult, huaResult, cangyingResult, isZimo, this.isHuangFanRound, this.huangFanCount, isGangShangPao);
             console.log(`[DEBUG] scoreResult:`, JSON.stringify(scoreResult));
