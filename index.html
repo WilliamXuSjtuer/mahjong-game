@@ -414,6 +414,8 @@
             background: rgba(0,0,0,0.3);
             border-radius: 10px;
             padding: 10px;
+            overflow: hidden;
+            min-width: 0;
         }
 
         .player-info {
@@ -421,6 +423,8 @@
             align-items: center;
             gap: 10px;
             margin-bottom: 10px;
+            min-width: 0;
+            flex-shrink: 0;
         }
 
         .player-avatar {
@@ -433,6 +437,7 @@
             justify-content: center;
             font-size: 1.5rem;
             border: 3px solid white;
+            flex-shrink: 0;
         }
 
         .player-avatar.current-turn {
@@ -534,6 +539,11 @@
         .player-name {
             font-size: 1.2rem;
             font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 80px;
+            flex-shrink: 1;
         }
 
         .player-wind {
@@ -541,6 +551,7 @@
             padding: 4px 12px;
             border-radius: 20px;
             font-size: 0.9rem;
+            flex-shrink: 0;
         }
 
         .opponent-hand {
@@ -961,7 +972,8 @@
         .flower-count {
             font-size: 0.7rem;
             color: #ff9999;
-            min-width: 70px;
+            flex-shrink: 0;
+            white-space: nowrap;
         }
         
         .score-name {
@@ -2194,6 +2206,24 @@
             margin-bottom: 20px;
         }
         
+        #discardCountdown {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: #FFD700;
+            font-size: 48px;
+            font-weight: bold;
+            padding: 20px 40px;
+            border-radius: 15px;
+            z-index: 1000;
+            pointer-events: none;
+            display: none;
+            border: 2px solid rgba(255, 215, 0, 0.5);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.3);
+        }
+        
         .pause-buttons {
             display: flex;
             gap: 15px;
@@ -2504,6 +2534,62 @@
             .ranking-item {
                 padding: 10px 15px;
             }
+            
+            .player-info {
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+            
+            .player-avatar {
+                width: 36px;
+                height: 36px;
+                font-size: 1.1rem;
+                border-width: 2px;
+            }
+            
+            .player-name {
+                font-size: 0.9rem;
+            }
+            
+            .player-wind {
+                padding: 2px 8px;
+                font-size: 0.75rem;
+            }
+            
+            .flower-count {
+                font-size: 0.7rem;
+                margin-left: 5px !important;
+            }
+            
+            .opponent-flowers {
+                min-height: 24px;
+            }
+            
+            .opponent-flowers .tile {
+                width: 18px;
+                height: 26px;
+            }
+            
+            #discardCountdown {
+                font-size: 32px;
+                padding: 15px 25px;
+                border-radius: 10px;
+            }
+            
+            .pause-timer {
+                font-size: 2rem;
+                margin: 15px 0;
+            }
+            
+            .pause-timer-label {
+                font-size: 0.85rem;
+                margin-top: -10px;
+            }
+            
+            #nextRoundCountdown {
+                font-size: 0.75rem;
+                padding: 8px;
+            }
         }
 
         @media (max-width: 360px) {
@@ -2520,6 +2606,45 @@
             .action-btn {
                 padding: 6px 12px;
                 font-size: 0.8rem;
+            }
+            
+            .player-info {
+                gap: 4px;
+            }
+            
+            .player-avatar {
+                width: 30px;
+                height: 30px;
+                font-size: 0.9rem;
+            }
+            
+            .player-name {
+                font-size: 0.8rem;
+            }
+            
+            .player-wind {
+                padding: 1px 6px;
+                font-size: 0.7rem;
+            }
+            
+            .flower-count {
+                font-size: 0.65rem;
+            }
+            
+            #discardCountdown {
+                font-size: 24px;
+                padding: 10px 20px;
+                border-radius: 8px;
+            }
+            
+            .pause-timer {
+                font-size: 1.5rem;
+                margin: 10px 0;
+            }
+            
+            .pause-timer-label {
+                font-size: 0.75rem;
+                margin-top: -8px;
             }
         }
 
@@ -6332,27 +6457,11 @@
             if (!countdownEl) {
                 countdownEl = document.createElement('div');
                 countdownEl.id = 'discardCountdown';
-                countdownEl.style.cssText = `
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: rgba(0, 0, 0, 0.8);
-                    color: #FFD700;
-                    font-size: 48px;
-                    font-weight: bold;
-                    padding: 20px 40px;
-                    border-radius: 15px;
-                    z-index: 1000;
-                    pointer-events: none;
-                    display: none;
-                `;
                 document.body.appendChild(countdownEl);
             }
             
             // 直接显示，不使用过渡动画
             countdownEl.style.display = 'block';
-            countdownEl.style.opacity = '1';
             countdownEl.style.color = '#FFD700'; // 重置颜色
             updateCountdownDisplay();
             
@@ -6385,11 +6494,8 @@
             }
             const countdownEl = document.getElementById('discardCountdown');
             if (countdownEl) {
-                countdownEl.style.opacity = '0';
-                setTimeout(() => {
-                    countdownEl.style.display = 'none';
-                    countdownEl.style.color = '#FFD700'; // 重置颜色
-                }, 300);
+                countdownEl.style.display = 'none';
+                countdownEl.style.color = '#FFD700';
             }
         }
         
