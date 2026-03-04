@@ -1817,6 +1817,17 @@ class MahjongRoom {
         // 优先级：胡 > 杠 > 碰 > 吃 > pass
         const priority = { hu: 4, gang: 3, peng: 2, chi: 1, pass: 0 };
         
+        // 【新增】收集所有选择"胡"的玩家（一炮多响）
+        const huActions = this.gameState.pendingActions.filter(a => a.action === 'hu');
+        
+        if (huActions.length > 1) {
+            // 一炮多响：多人同时胡牌
+            console.log(`一炮多响！${huActions.length}人同时胡牌`);
+            this.executeMultiHu(huActions);
+            this.gameState.pendingActions = [];
+            return;
+        }
+        
         let bestAction = null;
         for (const action of this.gameState.pendingActions) {
             const actionPriority = priority[action.action] || 0;
@@ -2120,6 +2131,23 @@ class MahjongRoom {
                 }
             }, 300);
         }
+    }
+    
+    // 【新增】执行一炮多响（多人同时胡牌）
+    executeMultiHu(huActions) {
+        const tile = huActions[0].tile;
+        const loserIndex = this.gameState.lastDiscardPlayer;
+        const isGangShangPao = this.gameState.gangShangPao;
+        
+        // 按座位顺序排序（确定第一个胡牌的人，作为下一局庄家）
+        huActions.sort((a, b) => a.playerIndex - b.playerIndex);
+        
+        console.log(`一炮多响：${huActions.map(a => this.players[a.playerIndex].username).join(', ')} 同时胡牌`);
+        console.log(`点炮者：${this.players[loserIndex].username}`);
+        console.log(`下一局庄家：${this.players[huActions[0].playerIndex].username}`);
+        
+        // 调用多人胡牌结算
+        this.endRoundMultiHu(huActions, tile, loserIndex, isGangShangPao);
     }
     
     // 执行暗杠（单独方法）
@@ -3419,6 +3447,131 @@ class MahjongRoom {
             });
             
             // 启动30秒倒计时
+            this.startNextRoundCountdown();
+        }
+    }
+    
+    // 【新增】结束一局（一炮多响）
+    endRoundMultiHu(huActions, tile, loserIndex, isGangShangPao) {
+        this.gameRunning = false;
+        this.gameState.gameOver = true;
+        
+        // 清除所有超时计时器
+        if (this.gameState.actionTimeout) {
+            clearTimeout(this.gameState.actionTimeout);
+        }
+        if (this.gameState.discardTimeout) {
+            clearTimeout(this.gameState.discardTimeout);
+        }
+        
+        // 按座位顺序排序，第一个胡牌的人是下一局庄家
+        huActions.sort((a, b) => a.playerIndex - b.playerIndex);
+        const firstWinnerIndex = huActions[0].playerIndex;
+        
+        console.log(`一炮多响结算：${huActions.length}人胡牌，下一局庄家：${this.players[firstWinnerIndex].username}`);
+        
+        // 胡牌后触发飞苍蝇（从牌墙尾部翻一张）
+        if (this.gameState.deck && this.gameState.deck.length > 0) {
+            this.gameState.cangyingTile = this.gameState.deck.pop();
+            console.log(`胡牌后飞苍蝇：${JSON.stringify(this.gameState.cangyingTile)}`);
+        }
+        
+        // 收集所有胡牌者的结算信息
+        const multiHuResults = [];
+        const totalScoreChanges = [0, 0, 0, 0];
+        
+        // 为每个胡牌者计算分数
+        huActions.forEach((action, index) => {
+            const winnerIndex = action.playerIndex;
+            const winner = this.players[winnerIndex];
+            
+            // 将胡的牌加入手牌
+            winner.hand.push(tile);
+            
+            // 计算番、花、苍蝇
+            const fanResult = this.calculateFan(winner, false, false);
+            const huaResult = this.calculateHua(winner);
+            const cangyingResult = this.calculateCangying(winner, this.gameState.cangyingTile, fanResult, huaResult);
+            
+            // 计算分数（点炮者全额赔付）
+            const scoreResult = this.calculateScore(winner, loserIndex, fanResult, huaResult, cangyingResult, false, this.isHuangFanRound, this.huangFanCount, isGangShangPao);
+            
+            // 记录这个胡牌者的结果
+            multiHuResults.push({
+                winnerIndex: winnerIndex,
+                winnerName: winner.username,
+                fanDetail: fanResult.fanList,
+                huaDetail: huaResult.huaList,
+                cangyingDetail: cangyingResult.cangyingList,
+                totalFan: fanResult.totalFan,
+                totalHua: huaResult.totalHua,
+                scoreResult: scoreResult,
+                isFirstWinner: (index === 0)
+            });
+            
+            // 累加分数变化
+            for (let i = 0; i < 4; i++) {
+                totalScoreChanges[i] += scoreResult.scoreChanges[i];
+            }
+        });
+        
+        // 更新累计积分
+        for (let i = 0; i < 4; i++) {
+            this.matchScores[i] += totalScoreChanges[i];
+        }
+        
+        // 下一局庄家为第一个胡牌的人
+        this.lastWinnerIndex = firstWinnerIndex;
+        
+        // 清除杠上炮标记
+        this.gameState.gangShangPao = false;
+        
+        // 构建结算结果
+        const roundResult = {
+            round: this.currentRound,
+            resultType: 'multi_hu',  // 新增类型：一炮多响
+            isZimo: false,
+            isGangShangPao: isGangShangPao,
+            winnerIndex: firstWinnerIndex,  // 第一个胡牌的人
+            loserIndex: loserIndex,
+            multiHuResults: multiHuResults,  // 所有胡牌者的结果
+            totalScoreChanges: totalScoreChanges,  // 总分数变化
+            players: this.players.map((p, idx) => ({
+                username: p.username,
+                score: this.matchScores[idx],
+                roundScore: totalScoreChanges[idx],
+                totalScore: this.matchScores[idx]
+            })),
+            huangFanCount: this.huangFanCount,
+            isHuangFanRound: this.isHuangFanRound,
+            cangyingTile: this.gameState.cangyingTile
+        };
+        
+        // 保存历史记录
+        this.roundHistory.push(roundResult);
+        
+        // 广播一炮多响结算
+        this.broadcast('round_ended_multi_hu', {
+            roundResult: roundResult,
+            currentRound: this.currentRound,
+            totalRounds: this.totalRounds,
+            matchScores: this.matchScores,
+            countdownSeconds: 30
+        });
+        
+        // 判断是否结束比赛
+        if (this.currentRound >= this.totalRounds) {
+            this.endMatch();
+        } else {
+            // 重置所有玩家准备状态
+            this.players.forEach(p => {
+                p.ready = false;
+                if (!p.isBot && !p.offline) {
+                    p.aiTakeover = false;
+                }
+            });
+            
+            // 启动下一局倒计时
             this.startNextRoundCountdown();
         }
     }
