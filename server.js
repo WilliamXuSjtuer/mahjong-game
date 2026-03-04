@@ -509,12 +509,21 @@ class MahjongRoom {
             const player = this.players[playerIndex];
             playerSockets.delete(socketId);
             
-            // 真人玩家断线，标记为离线状态（无论游戏是否在进行，都保留玩家信息以便重连）
-            if (!player.isBot) {
+            // 【修复】游戏进行中：真人玩家断线，标记为离线状态以便重连
+            // 游戏未开始时：真人玩家离开应该真正移除，空出位置
+            if (!player.isBot && this.gameRunning) {
                 player.offline = true;
                 player.offlineTime = Date.now();
                 player.socket = null;
                 console.log(`玩家 ${player.username} 断线，等待重连 (房间 ${this.code})`);
+                
+                // 【修复】如果发起解散的玩家离线，取消解散请求
+                if (this.dissolveRequest && this.dissolveRequest.requesterId === socketId) {
+                    console.log(`解散发起者 ${player.username} 离线，取消解散请求`);
+                    this.dissolveRequest = null;
+                    this.dissolveVotes = {};
+                    this.broadcast('dissolve_cancelled', { reason: '发起者已离线' });
+                }
                 
                 // 广播玩家离线状态
                 this.broadcast('player_offline', { 
@@ -523,8 +532,8 @@ class MahjongRoom {
                 });
                 this.broadcastRoomUpdate();
                 
-                // 【新增】如果正好轮到断线玩家，AI立即接管
-                if (this.gameRunning && this.gameState.currentPlayerIndex === player.seatIndex) {
+                // 如果正好轮到断线玩家，AI立即接管
+                if (this.gameState.currentPlayerIndex === player.seatIndex) {
                     console.log(`玩家 ${player.username} 断线时正好轮到他，AI接管`);
                     
                     // 清除可能存在的超时计时器
@@ -541,7 +550,7 @@ class MahjongRoom {
                     }, 500);
                 }
                 
-                // 【新增】检查是否所有真人玩家都已离线
+                // 检查是否所有真人玩家都已离线
                 const realPlayers = this.players.filter(p => !p.isBot);
                 const onlineRealPlayers = realPlayers.filter(p => !p.offline);
                 
@@ -713,6 +722,18 @@ class MahjongRoom {
     startGame() {
         if (this.gameRunning) return;
         
+        // 【修复】确保玩家数量正确
+        if (this.players.length < 4) {
+            console.log(`玩家数量不足(${this.players.length})，填充AI`);
+            this.fillWithAI();
+        }
+        
+        // 【修复】再次检查，确保填充成功
+        if (this.players.length !== 4) {
+            console.error(`无法填充玩家到4人，当前: ${this.players.length}`);
+            return;
+        }
+        
         // 增加局数
         this.currentRound++;
         if (!this.matchStarted) {
@@ -795,6 +816,13 @@ class MahjongRoom {
         
         // 检查庄家是否有暗杠
         const dealer = this.players[dealerIndex];
+        
+        // 【修复】检查 dealer 是否有效
+        if (!dealer) {
+            console.error(`无效的庄家索引: ${dealerIndex}, 玩家数: ${this.players.length}`);
+            return;
+        }
+        
         const dealerAnGangActions = this.checkAnGangAvailable(dealer);
         
         if (dealerAnGangActions.length > 0) {
@@ -1362,7 +1390,8 @@ class MahjongRoom {
         this.gameState.lastDiscard = tile;
         this.gameState.lastDiscardPlayer = player.seatIndex;
         this.gameState.lastDrawnTile = null; // 【新增】清除记录
-        this.gameState.gangShangPao = false; // 【新增】出牌后清除杠上炮标记
+        // 【修复】不在出牌时清除杠上炮标记，改为在 nextTurn 或胡牌结算后清除
+        // this.gameState.gangShangPao = false;
         
         // 检查玩家是否听牌，如果听牌了则通知前端弹窗确认敲牌
         // 出牌后手牌是13张，需要检测是否听牌（差一张胡牌）
@@ -1650,8 +1679,10 @@ class MahjongRoom {
                     clearTimeout(this.gameState.discardTimeout);
                     this.gameState.discardTimeout = null;
                 }
+                // 【修复】自摸胡牌时检查是否是杠开（杠后摸牌自摸）
+                const isGangKai = this.gameState.gangShangPao;
                 // 执行自摸胡牌
-                this.endRound('hu', player.seatIndex, -1, true, false);
+                this.endRound('hu', player.seatIndex, -1, true, isGangKai);
                 this.gameState.pendingZimo = null;
                 return { success: true };
             } else {
@@ -1715,6 +1746,46 @@ class MahjongRoom {
             // 如果是暗杠，保存玩家选择的暗杠选项
             if (actionType === 'an_gang' && extraData.anGangOptions) {
                 pendingAction.anGangOptions = extraData.anGangOptions;
+            }
+            
+            // 【修复】检查是否可以立即执行（优先级即时结算）
+            const priority = { hu: 4, gang: 3, peng: 2, chi: 1, pass: 0 };
+            const currentPriority = priority[actionType] || 0;
+            
+            // 检查是否还有其他玩家可以选择更高优先级的动作
+            const hasHigherPriorityOption = this.gameState.pendingActions.some(a => {
+                if (a.resolved) return false; // 已经响应的不算
+                if (a.playerId === socketId) return false; // 自己不算
+                
+                // 检查该玩家的可选动作中是否有更高优先级的
+                return a.actions.some(act => (priority[act] || 0) > currentPriority);
+            });
+            
+            // 检查是否有其他人也选择了相同优先级的动作（如多人胡）
+            const hasSamePriorityUnresolved = this.gameState.pendingActions.some(a => {
+                if (a.resolved) return false;
+                if (a.playerId === socketId) return false;
+                
+                // 检查该玩家的可选动作中是否有相同优先级的
+                return a.actions.some(act => (priority[act] || 0) === currentPriority);
+            });
+            
+            if (!hasHigherPriorityOption && !hasSamePriorityUnresolved) {
+                // 没有更高或相同优先级的选项，立即执行当前动作
+                console.log(`优先级即时结算：${player.username} 选择 ${actionType}，立即执行`);
+                clearTimeout(this.gameState.actionTimeout);
+                
+                // 取消其他玩家的待处理动作
+                this.gameState.pendingActions.forEach(a => {
+                    if (!a.resolved) {
+                        console.log(`取消玩家 ${a.playerIndex} 的待处理动作`);
+                        a.resolved = true;
+                        a.action = 'pass';
+                    }
+                });
+                
+                this.resolveActions();
+                return { success: true };
             }
         } else {
             return { error: '无效的动作' };
@@ -2336,6 +2407,7 @@ class MahjongRoom {
         this.gameState.currentPlayerIndex = (this.gameState.currentPlayerIndex + 1) % 4;
         this.gameState.turnPhase = 'draw';
         this.gameState.lastDiscard = null;
+        this.gameState.gangShangPao = false; // 【修复】进入下一轮时清除杠上炮标记
         
         this.broadcastGameState();
         this.notifyCurrentPlayer();
@@ -2374,7 +2446,9 @@ class MahjongRoom {
             // 检查自摸（只有敲牌后才能自摸）
             if (aiPlayer.isQiao && this.canHu(aiPlayer.hand, aiPlayer.melds)) {
                 const winnerIndex = aiPlayer.seatIndex;
-                this.endRound('hu', winnerIndex, -1, true, false);
+                // 【修复】自摸时检查是否是杠开
+                const isGangKai = this.gameState.gangShangPao;
+                this.endRound('hu', winnerIndex, -1, true, isGangKai);
                 return;
             }
             
@@ -2517,7 +2591,8 @@ class MahjongRoom {
         this.gameState.lastDiscard = discardTile;
         this.gameState.lastDiscardPlayer = aiPlayer.seatIndex;
         this.gameState.lastDrawnTile = null;  // AI 出牌后清除记录
-        this.gameState.gangShangPao = false; // 【新增】AI 出牌后清除杠上炮标记
+        // 【修复】不在AI出牌时清除杠上炮标记，改为在 nextTurn 或胡牌结算后清除
+        // this.gameState.gangShangPao = false;
         
         // 【修复】检查 AI 是否听牌，如果听牌了自动敲牌
         // 听牌检测：检查是否再摸任意一张牌就能胡
@@ -2573,6 +2648,43 @@ class MahjongRoom {
         } else {
             action.resolved = true;
             action.action = 'pass';
+        }
+        
+        // 【修复】检查是否可以立即执行（优先级即时结算）
+        if (action.action !== 'pass') {
+            const priority = { hu: 4, gang: 3, peng: 2, chi: 1, pass: 0 };
+            const currentPriority = priority[action.action] || 0;
+            
+            // 检查是否还有其他玩家可以选择更高优先级的动作
+            const hasHigherPriorityOption = this.gameState.pendingActions.some(a => {
+                if (a.resolved) return false;
+                if (a.playerId === aiPlayer.id) return false;
+                return a.actions.some(act => (priority[act] || 0) > currentPriority);
+            });
+            
+            // 检查是否有其他人也选择了相同优先级的动作
+            const hasSamePriorityUnresolved = this.gameState.pendingActions.some(a => {
+                if (a.resolved) return false;
+                if (a.playerId === aiPlayer.id) return false;
+                return a.actions.some(act => (priority[act] || 0) === currentPriority);
+            });
+            
+            if (!hasHigherPriorityOption && !hasSamePriorityUnresolved) {
+                console.log(`AI优先级即时结算：${aiPlayer.username} 选择 ${action.action}，立即执行`);
+                clearTimeout(this.gameState.actionTimeout);
+                
+                // 取消其他玩家的待处理动作
+                this.gameState.pendingActions.forEach(a => {
+                    if (!a.resolved) {
+                        console.log(`取消玩家 ${a.playerIndex} 的待处理动作`);
+                        a.resolved = true;
+                        a.action = 'pass';
+                    }
+                });
+                
+                this.resolveActions();
+                return;
+            }
         }
         
         if (this.gameState.pendingActions.every(a => a.resolved)) {
@@ -3277,6 +3389,9 @@ class MahjongRoom {
         roundResult.loserUsername = loserUsername;
         roundResult.cangyingTile = this.gameState.cangyingTile;  // 苍蝇牌
         
+        // 【修复】胡牌结算后清除杠上炮标记
+        this.gameState.gangShangPao = false;
+        
         // 保存历史记录
         this.roundHistory.push(roundResult);
         
@@ -3466,7 +3581,8 @@ class MahjongRoom {
             const winnerName = result.split(' ')[0];
             const winner = this.players.find(p => p.username === winnerName);
             if (winner) {
-                this.endRound('zimo', winner.seatIndex, -1, true, false);
+                // 【修复】自摸时也需要传递杠上炮标记（杠开自摸）
+                this.endRound('zimo', winner.seatIndex, -1, true, false, isGangShangPao);
                 return;
             }
         } else if (result.includes('胡牌')) {
@@ -3800,9 +3916,36 @@ class MahjongRoom {
             this.autoDissolveTimer = null;
         }
         
+        // 【修复】重置解散相关状态
+        this.dissolveRequest = null;
+        this.dissolveVotes = {};
+        
+        // 【修复】重置 gameState 对象
+        this.gameState = null;
+        
+        // 【修复】重置游戏状态
         this.gameRunning = false;
         this.isPaused = false;
         this.pausePlayer = null;
+        this.matchStarted = false;
+        this.currentRound = 0;
+        this.matchScores = [0, 0, 0, 0];
+        this.roundHistory = [];
+        this.huangFanCount = 0;
+        this.isHuangFanRound = false;
+        
+        // 【修复】重置玩家状态
+        this.players.forEach(p => {
+            p.hand = [];
+            p.melds = [];
+            p.discards = [];
+            p.flowers = [];
+            p.isTing = false;
+            p.isQiao = false;
+            p.ready = false;
+            p.sankouCounts = [0, 0, 0, 0];
+            p.aiTakeover = false;
+        });
         
         // 广播游戏解散
         this.broadcast('game_dissolved', {
@@ -3811,6 +3954,11 @@ class MahjongRoom {
             totalRounds: this.totalRounds,
             currentRound: this.currentRound
         });
+        
+        // 【修复】清理资源并删除房间
+        this.cleanup();
+        gameRooms.delete(this.code);
+        console.log(`房间 ${this.code} 已解散并清理`);
     }
 }
 
