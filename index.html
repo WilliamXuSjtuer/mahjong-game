@@ -4643,6 +4643,38 @@
                 showRoundResult(data);
             });
             
+            // 【新增】一炮多响结算
+            socket.on('round_ended_multi_hu', (data) => {
+                console.log('一炮多响结算:', data);
+                
+                // 设置房间号
+                if (data.roomCode) {
+                    currentRoom = data.roomCode;
+                }
+                
+                // 播放胡牌音效（第一个胡牌的人）
+                const firstWinner = data.roundResult.multiHuResults[0];
+                if (firstWinner) {
+                    const winnerPlayer = gameState.players.find(p => p.seatIndex === firstWinner.winnerIndex);
+                    const voice = winnerPlayer?.voice || 'female01';
+                    speakHu(false, voice);
+                    
+                    // 播放爆炸音效
+                    setTimeout(() => playExplosionSound(), 500);
+                }
+                
+                // 重置准备按钮状态
+                const btn = document.getElementById('continueNextBtn');
+                if (btn) {
+                    btn.innerHTML = '<i class="fas fa-play"></i> 继续下一局';
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                }
+                
+                // 显示一炮多响结算
+                showMultiHuResult(data);
+            });
+            
             // 倒计时更新
             socket.on('countdown_update', (data) => {
                 console.log('倒计时更新:', data.seconds);
@@ -6959,6 +6991,168 @@
                     if (countdownSecondsEl) countdownSecondsEl.textContent = countdownSeconds;
                     
                     // 初始化玩家准备状态（显示4个等待中）
+                    updatePlayersReadyStatus([]);
+                }
+            }
+            
+            document.getElementById('roundResultModal').classList.add('active');
+        }
+        
+        // 【新增】显示一炮多响结算
+        function showMultiHuResult(data) {
+            const { roundResult, currentRound, totalRounds, matchScores } = data;
+            
+            // 更新积分面板
+            updateScorePanel(matchScores);
+            
+            // 设置标题
+            const titleEl = document.getElementById('roundResultTitle');
+            if (titleEl) titleEl.textContent = '🔥 一炮多响！';
+            
+            // 显示赢家信息
+            const roundWinnerInfoEl = document.getElementById('roundWinnerInfo');
+            if (roundWinnerInfoEl) roundWinnerInfoEl.style.display = 'block';
+            
+            const winnerNameEl = document.getElementById('winnerName');
+            if (winnerNameEl) {
+                const winnerNames = roundResult.multiHuResults.map(r => r.winnerName).join('、');
+                winnerNameEl.textContent = winnerNames;
+            }
+            
+            const winTypeEl = document.getElementById('winType');
+            if (winTypeEl) {
+                winTypeEl.textContent = `同时胡牌！(${roundResult.multiHuResults.length}响)`;
+            }
+            
+            // 显示胡牌详情
+            const huDetailListEl = document.getElementById('huDetailList');
+            if (huDetailListEl) huDetailListEl.style.display = 'block';
+            
+            const huInfoEl = document.getElementById('huInfo');
+            if (huInfoEl) {
+                const loserName = roundResult.players.find(p => p.seatIndex === roundResult.loserIndex)?.username || '未知';
+                const winnerNames = roundResult.multiHuResults.map(r => r.winnerName).join('、');
+                huInfoEl.innerHTML = `<span class="hu-from">${loserName}</span> 放铳 → <span class="hu-to">${winnerNames}</span> 一炮多响！`;
+            }
+            
+            // 显示每个胡牌者的详情
+            const fanDetailListEl = document.getElementById('fanDetailList');
+            const huaDetailListEl = document.getElementById('huaDetailList');
+            const cangyingDetailListEl = document.getElementById('cangyingDetailList');
+            
+            if (fanDetailListEl) fanDetailListEl.style.display = 'block';
+            if (huaDetailListEl) huaDetailListEl.style.display = 'block';
+            if (cangyingDetailListEl) cangyingDetailListEl.style.display = 'block';
+            
+            // 构建每个胡牌者的番型详情
+            let fanHtml = '';
+            roundResult.multiHuResults.forEach((result, idx) => {
+                const isFirst = result.isFirstWinner;
+                const badge = isFirst ? ' 🎯(下局庄家)' : '';
+                fanHtml += `<div style="margin-bottom: 15px; padding: 10px; background: ${isFirst ? 'rgba(255,215,0,0.2)' : 'rgba(255,255,255,0.1)'}; border-radius: 8px;">`;
+                fanHtml += `<div style="font-weight: bold; margin-bottom: 5px;">${result.winnerName}${badge}</div>`;
+                fanHtml += `<div style="font-size: 0.9rem;">`;
+                result.fanDetail.forEach(f => {
+                    fanHtml += `<span style="margin-right: 10px;">${f.name} ${f.fan}番</span>`;
+                });
+                fanHtml += `</div></div>`;
+            });
+            
+            const fanItemsEl = document.getElementById('fanItems');
+            if (fanItemsEl) fanItemsEl.innerHTML = fanHtml;
+            
+            // 构建花数详情
+            let huaHtml = '';
+            roundResult.multiHuResults.forEach((result, idx) => {
+                huaHtml += `<div style="margin-bottom: 10px;">`;
+                huaHtml += `<span style="font-weight: bold;">${result.winnerName}: </span>`;
+                result.huaDetail.forEach(h => {
+                    huaHtml += `<span style="margin-right: 10px;">${h.name} ${h.hua}花</span>`;
+                });
+                huaHtml += `</div>`;
+            });
+            
+            const huaItemsEl = document.getElementById('huaItems');
+            if (huaItemsEl) huaItemsEl.innerHTML = huaHtml;
+            
+            // 显示苍蝇牌
+            const cangyingItemsEl = document.getElementById('cangyingItems');
+            if (cangyingItemsEl && roundResult.cangyingTile) {
+                const tile = roundResult.cangyingTile;
+                const tileName = getTileName(tile);
+                cangyingItemsEl.innerHTML = `<div class="cangying-item"><span class="fan-name">苍蝇牌</span><span class="cangying-tile">${tileName}</span></div>`;
+            }
+            
+            // 隐藏手牌和副露显示（一炮多响时显示多个比较复杂）
+            const winnerHandTilesEl = document.getElementById('winnerHandTiles');
+            if (winnerHandTilesEl) winnerHandTilesEl.innerHTML = '<span style="color: #aaa;">多人胡牌，详情见上方</span>';
+            
+            const meldSectionEl = document.getElementById('meldSection');
+            if (meldSectionEl) meldSectionEl.style.display = 'none';
+            
+            const finalTileSectionEl = document.getElementById('finalTileSection');
+            if (finalTileSectionEl) finalTileSectionEl.style.display = 'none';
+            
+            // 显示分数变化
+            const scoreChangeItems = document.getElementById('scoreChangeItems');
+            if (scoreChangeItems) {
+                const sortedPlayers = roundResult.players
+                    .map((p, idx) => ({
+                        ...p,
+                        seatIndex: idx,
+                        totalScore: matchScores[idx]
+                    }))
+                    .sort((a, b) => b.roundScore - a.roundScore);
+                
+                let tableHtml = '<table style="width: 100%; border-collapse: collapse;"><thead><tr>';
+                tableHtml += '<th style="padding: 8px 5px; text-align: left;">排名</th>';
+                tableHtml += '<th style="padding: 8px 5px; text-align: left;">玩家</th>';
+                tableHtml += '<th style="padding: 8px 5px; text-align: right;">本局</th>';
+                tableHtml += '<th style="padding: 8px 5px; text-align: right;">累计</th>';
+                tableHtml += '</tr></thead><tbody>';
+                
+                sortedPlayers.forEach((p, idx) => {
+                    const change = p.roundScore;
+                    const changeColor = change > 0 ? '#2ecc71' : change < 0 ? '#e74c3c' : '#fff';
+                    const changeText = change >= 0 ? `+${change}` : change;
+                    const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '4️⃣';
+                    const totalColor = p.totalScore > 0 ? '#2ecc71' : p.totalScore < 0 ? '#e74c3c' : '#fff';
+                    const totalText = p.totalScore >= 0 ? `+${p.totalScore}` : p.totalScore;
+                    const rowBg = idx === 0 && change > 0 ? 'rgba(46,204,113,0.15)' : 'transparent';
+                    
+                    tableHtml += `<tr style="background: ${rowBg};">`;
+                    tableHtml += `<td style="padding: 8px 5px;">${medal}</td>`;
+                    tableHtml += `<td style="padding: 8px 5px;">${p.username}</td>`;
+                    tableHtml += `<td style="padding: 8px 5px; text-align: right; color: ${changeColor}; font-weight: bold;">${changeText}</td>`;
+                    tableHtml += `<td style="padding: 8px 5px; text-align: right; color: ${totalColor};">${totalText}</td>`;
+                    tableHtml += '</tr>';
+                });
+                
+                tableHtml += '</tbody></table>';
+                scoreChangeItems.innerHTML = tableHtml;
+            }
+            
+            // 显示局数
+            const roundEndCurrentEl = document.getElementById('roundEndCurrent');
+            if (roundEndCurrentEl) roundEndCurrentEl.textContent = currentRound;
+            const roundEndTotalEl = document.getElementById('roundEndTotal');
+            if (roundEndTotalEl) roundEndTotalEl.textContent = totalRounds;
+            
+            // 如果是最后一局，隐藏继续按钮和倒计时区域
+            const continueBtn = document.getElementById('continueNextBtn');
+            const countdownArea = document.getElementById('nextRoundCountdown');
+            if (continueBtn && countdownArea) {
+                if (currentRound >= totalRounds) {
+                    continueBtn.style.display = 'none';
+                    countdownArea.style.display = 'none';
+                } else {
+                    continueBtn.style.display = 'block';
+                    countdownArea.style.display = 'block';
+                    
+                    const countdownSeconds = data.countdownSeconds || 30;
+                    const countdownSecondsEl = document.getElementById('countdownSeconds');
+                    if (countdownSecondsEl) countdownSecondsEl.textContent = countdownSeconds;
+                    
                     updatePlayersReadyStatus([]);
                 }
             }
