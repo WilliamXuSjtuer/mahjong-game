@@ -761,6 +761,24 @@
             0%, 100% { box-shadow: 0 0 15px rgba(52,152,219,0.8); }
             50% { box-shadow: 0 0 25px rgba(52,152,219,1); }
         }
+        
+        /* 最后打出的牌 - 金色闪烁边框 */
+        .tile.last-discard {
+            border-color: #FFD700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.8);
+            animation: lastDiscardPulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes lastDiscardPulse {
+            0%, 100% { 
+                border-color: #FFD700;
+                box-shadow: 0 0 10px rgba(255, 215, 0, 0.6);
+            }
+            50% { 
+                border-color: #FFA500;
+                box-shadow: 0 0 20px rgba(255, 215, 0, 1);
+            }
+        }
 
         .tile.disabled {
             opacity: 0.5;
@@ -2522,6 +2540,11 @@
             animation: none;
             box-shadow: 0 0 10px rgba(52,152,219,0.9);
         }
+        
+        body.reduce-motion .tile.last-discard {
+            animation: none;
+            box-shadow: 0 0 8px rgba(255, 215, 0, 0.8);
+        }
 
         body.reduce-motion .player-avatar.current-turn {
             animation: none;
@@ -4066,6 +4089,13 @@
                 console.log('收到 room_joined 事件，roomCode:', data.roomCode);
                 currentRoom = data.roomCode;
                 isTestRoom = data.isTestRoom || false;
+                // 【修复】重置准备状态
+                isReady = false;
+                const readyBtnEl = document.getElementById('readyBtn');
+                if (readyBtnEl) {
+                    readyBtnEl.innerHTML = '<i class="fas fa-check"></i> 准备';
+                    readyBtnEl.classList.remove('secondary');
+                }
                 sessionStorage.setItem('mahjong_room_code', data.roomCode);
                 sessionStorage.setItem('mahjong_username', username);
                 showRoomScreen();
@@ -4779,6 +4809,14 @@
             document.getElementById('roomScreen').classList.add('active');
             document.getElementById('roomCodeDisplay').textContent = currentRoom;
             
+            // 【修复】重置准备状态
+            isReady = false;
+            const readyBtnEl = document.getElementById('readyBtn');
+            if (readyBtnEl) {
+                readyBtnEl.innerHTML = '<i class="fas fa-check"></i> 准备';
+                readyBtnEl.classList.remove('secondary');
+            }
+            
             // 测试房间显示牌谱编辑器
             if (isTestRoom) {
                 showDeckEditor();
@@ -5056,12 +5094,16 @@
 
         // 离开房间
         function leaveRoom() {
+            // 清除所有计时器
+            clearAllClientTimers();
+            
             socket.emit('leave_room');
             currentRoom = null;
             isReady = false;
             isTestRoom = false;
             currentDeckOrder = [];
             hideDeckEditor();
+            hidePauseModals();
             sessionStorage.removeItem('mahjong_room_code');
             sessionStorage.removeItem('mahjong_username');
             document.getElementById('roomScreen').classList.remove('active');
@@ -5635,8 +5677,17 @@
                 if (!container) return;
                 
                 container.innerHTML = '';
-                player.discards.forEach(tile => {
+                player.discards.forEach((tile, index) => {
                     const tileEl = createTileElement(tile, { small: true });
+                    
+                    // 【新增】为最后打出的牌添加金色闪烁边框
+                    const isLastDiscard = gameState.lastDiscard && 
+                                          gameState.lastDiscardPlayer === player.seatIndex &&
+                                          index === player.discards.length - 1;
+                    if (isLastDiscard) {
+                        tileEl.classList.add('last-discard');
+                    }
+                    
                     container.appendChild(tileEl);
                 });
                 
@@ -6340,6 +6391,41 @@
                     countdownEl.style.color = '#FFD700'; // 重置颜色
                 }, 300);
             }
+        }
+        
+        // 清除所有客户端计时器
+        function clearAllClientTimers() {
+            // 清除出牌倒计时
+            if (discardCountdownTimer) {
+                clearInterval(discardCountdownTimer);
+                discardCountdownTimer = null;
+            }
+            
+            // 清除暂停计时器
+            if (pauseTimerInterval) {
+                clearInterval(pauseTimerInterval);
+                pauseTimerInterval = null;
+            }
+            
+            // 清除心跳计时器
+            if (pingInterval) {
+                clearInterval(pingInterval);
+                pingInterval = null;
+            }
+            
+            // 隐藏倒计时显示元素
+            const countdownEl = document.getElementById('discardCountdown');
+            if (countdownEl) {
+                countdownEl.style.display = 'none';
+            }
+            
+            // 隐藏下一局倒计时区域
+            const nextRoundCountdownEl = document.getElementById('nextRoundCountdown');
+            if (nextRoundCountdownEl) {
+                nextRoundCountdownEl.style.display = 'none';
+            }
+            
+            console.log('所有客户端计时器已清除');
         }
 
         // 获取牌名
@@ -7102,15 +7188,8 @@
         // 返回主页
         function returnToHome() {
             // 清除所有计时器
-            stopDiscardCountdown('returnToHome');
+            clearAllClientTimers();
             hidePauseModals();
-            
-            // 清除下一局倒计时
-            const nextRoundCountdownEl = document.getElementById('nextRoundCountdown');
-            if (nextRoundCountdownEl) {
-                nextRoundCountdownEl.style.display = 'none';
-                nextRoundCountdownEl.innerHTML = '';
-            }
             
             const dissolveResultModalEl = document.getElementById('dissolveResultModal');
             if (dissolveResultModalEl) dissolveResultModalEl.classList.remove('active');
@@ -7212,12 +7291,18 @@
         // 离开游戏
         function leaveGame() {
             if (confirm('确定要退出游戏吗？')) {
+                // 清除所有计时器
+                clearAllClientTimers();
+                
                 socket.emit('leave_room');
                 document.getElementById('gameScreen').classList.remove('active');
                 document.getElementById('lobbyScreen').classList.add('active');
                 document.getElementById('chatArea').style.display = 'none';
                 document.body.classList.remove('in-game');
                 currentRoom = null;
+                gameState = null;
+                gameRunning = false;
+                isViewer = false;
             }
         }
 
